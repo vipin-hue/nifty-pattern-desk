@@ -1,0 +1,13 @@
+{
+  "name": "nifty-intraday-pattern-desk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nifty 50 intraday pattern-match dashboard with daily auto-update, deployed on Netlify.",
+  "dependencies": {
+    "@netlify/blobs": "^8.2.0",
+    "@netlify/functions": "^2.8.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
