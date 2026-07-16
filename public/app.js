@@ -41,6 +41,58 @@ function sampleTag(n){
   return {label:'reasonable sample', cls:''};
 }
 
+// Log-gamma via Lanczos approximation, for computing exact binomial
+// probabilities without overflowing on n choose k at n up to a few
+// hundred.
+function logGamma(x){
+  const g = 7;
+  const c = [0.99999999999980993,676.5203681218851,-1259.1392167224028,
+    771.32342877765313,-176.61502916214059,12.507343278686905,
+    -0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  if(x < 0.5) return Math.log(Math.PI/Math.sin(Math.PI*x)) - logGamma(1-x);
+  x -= 1;
+  let a = c[0];
+  const t = x+g+0.5;
+  for(let i=1;i<g+2;i++) a += c[i]/(x+i);
+  return 0.5*Math.log(2*Math.PI) + (x+0.5)*Math.log(t) - t + Math.log(a);
+}
+
+function logBinomPMF(k, n, p){
+  if(p<=0) return k===0 ? 0 : -Infinity;
+  if(p>=1) return k===n ? 0 : -Infinity;
+  const logC = logGamma(n+1) - logGamma(k+1) - logGamma(n-k+1);
+  return logC + k*Math.log(p) + (n-k)*Math.log(1-p);
+}
+
+// Exact two-sided binomial test, same method scipy.stats.binomtest uses
+// for alternative='two-sided': sum the probability of every outcome at
+// least as extreme (i.e. no more likely) than the one actually observed.
+// Verified against scipy's output on this exact dataset before shipping —
+// see the audit conversation for the cross-check.
+function proportionPValue(k, n, p0){
+  if(n===0) return null;
+  const pmfs = [];
+  for(let i=0;i<=n;i++) pmfs.push(Math.exp(logBinomPMF(i,n,p0)));
+  const observed = pmfs[k];
+  const threshold = observed * 1.0000001; // small tolerance for float noise
+  let pvalue = 0;
+  for(let i=0;i<=n;i++) if(pmfs[i] <= threshold) pvalue += pmfs[i];
+  return Math.min(pvalue, 1);
+}
+
+// Honest confidence tier, accounting for how many simultaneous comparisons
+// this stat was drawn from (5 weekdays, 4 gap buckets, etc.) — a raw
+// p<0.05 across several tested categories is expected some of the time by
+// chance alone, so the label reflects the corrected threshold, not the
+// raw one. See the audit: none of the 5 weekday effects survived this.
+function significanceLabel(pvalue, numComparisons){
+  if(pvalue == null) return {tier:'na', text:'not enough data to test'};
+  const corrected = 0.05 / numComparisons;
+  if(pvalue < corrected) return {tier:'robust', text:`statistically robust even after correcting for testing ${numComparisons} categories at once (p=${pvalue.toFixed(4)})`};
+  if(pvalue < 0.05) return {tier:'weak', text:`nominally p=${pvalue.toFixed(4)} but does not survive correction for testing ${numComparisons} categories at once — treat as a weak lean, not a proven edge`};
+  return {tier:'none', text:`p=${pvalue.toFixed(4)} — not distinguishable from the baseline rate, no evidence of edge here`};
+}
+
 // True Range accounts for gaps (max of today's H-L, |H-prevClose|,
 // |L-prevClose|) — matters here given how often NIFTY gaps. ATR uses
 // Wilder's smoothing, the standard method every charting platform uses,
@@ -171,10 +223,20 @@ function renderHistoryTable(){
     </tr>`).join('');
 }
 
+function localDateStr(d){
+  // valueAsDate reads UTC calendar-day parts, which is wrong for IST users
+  // between midnight and 5:30am (still "yesterday" in UTC) — build the
+  // date string from local date parts instead, and set .value directly.
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
 function init(){
   const today = new Date();
-  document.getElementById('inDate').valueAsDate = today;
-  document.getElementById('logDate').valueAsDate = today;
+  document.getElementById('inDate').value = localDateStr(today);
+  document.getElementById('logDate').value = localDateStr(today);
   updateDateHint();
   document.getElementById('inDate').addEventListener('change', updateDateHint);
   document.getElementById('btnCalc').addEventListener('click', runMatch);
@@ -443,10 +505,19 @@ function renderSnapshot(s){
     </div>`;
 }
 
-function barRow(name, rows, open){
+function barRow(name, rows, open, baseline, numComparisons){
   const s = summarize(rows);
   if(!s) return `<div class="match-row"><div class="match-head"><div class="match-name">${name}</div><div class="match-n low">n = 0</div></div><div class="hint">No historical sessions match this exact condition.</div></div>`;
   const tag = sampleTag(s.n);
+
+  let sigHtml = '';
+  if(baseline != null && numComparisons){
+    const k = Math.round(s.winPct/100 * s.n);
+    const pvalue = proportionPValue(k, s.n, baseline);
+    const sig = significanceLabel(pvalue, numComparisons);
+    const color = sig.tier==='robust' ? 'var(--green)' : sig.tier==='weak' ? 'var(--amber)' : 'var(--text-faint)';
+    sigHtml = `<div class="hint" style="color:${color}; margin-top:4px;">${sig.text}</div>`;
+  }
 
   let projection = '';
   if(open){
@@ -474,24 +545,32 @@ function barRow(name, rows, open){
         <span>Avg open→close: <b>${pct(s.avgIntra,2)}</b></span>
         <span>Avg day range: <b>${s.avgRangePts.toFixed(0)} pts</b> (${s.avgRangePct.toFixed(2)}%)</span>
       </div>
+      ${sigHtml}
       ${projection}
     </div>`;
 }
 
+function computeBaselineWinRate(hist){
+  const valid = hist.filter(r => r.col === 'G' || r.col === 'R');
+  if(!valid.length) return null;
+  return valid.filter(r => r.col==='G').length / valid.length;
+}
+
 function renderMatches({wdRows, gapRows, combinedRows, wd, bucket, dir, isWeekday, open}){
+  const baseline = computeBaselineWinRate(HIST);
   let html = `<div class="grid"><div class="panel">
     <p class="panel-title">Historical Pattern Match</p>
-    <p class="panel-desc">Each row is one dimension checked separately against the full sample, with a projected close/High-Low band from that row's own numbers. They're shown apart on purpose — combining weekday + gap size shrinks the sample fast, and a projection built on n=1 or n=2 is noise wearing a percentage sign, not a guess worth trusting. Check the sample size on every row before leaning on its projection.</p>`;
+    <p class="panel-desc">Each row is one dimension checked separately against the full sample, with a significance check against the baseline win rate (${baseline!=null?(baseline*100).toFixed(1):'?'}%) — corrected for testing several categories at once, not just a raw p-value. A projection built on n=1 or n=2, or one that doesn't survive that correction, is noise wearing a percentage sign, not a guess worth trusting.</p>`;
 
   if(isWeekday){
-    html += barRow(`All ${wd}s`, wdRows, open);
+    html += barRow(`All ${wd}s`, wdRows, open, baseline, 5);
   } else {
     html += `<div class="match-row"><div class="hint">Not a Mon–Fri session by the date entered — weekday stats skipped.</div></div>`;
   }
-  html += barRow(`All gap-${dir} days, ${bucket}`, gapRows, open);
+  html += barRow(`All gap-${dir} days, ${bucket}`, gapRows, open, baseline, 4);
 
   if(isWeekday && combinedRows.length >= 12){
-    html += barRow(`${wd} + gap-${dir} ${bucket} (combined)`, combinedRows, open);
+    html += barRow(`${wd} + gap-${dir} ${bucket} (combined)`, combinedRows, open, baseline, 20);
   } else if(isWeekday){
     html += `<div class="warn-inline">Combined weekday+gap slice has only ${combinedRows.length} historical matches (some cells in this dataset run as low as n=1) — too thin to project anything from on its own, folded into the two single-dimension rows above instead.</div>`;
   }
@@ -875,11 +954,14 @@ async function suggestLevels(){
   }catch(e){ /* VIX context is optional, plan still works without it */ }
 
   // --- Build the notes using real numbers, not invented ones ---
+  const baseline = computeBaselineWinRate(HIST);
+  const wdSig = wdStats && baseline!=null ? significanceLabel(proportionPValue(Math.round(wdStats.winPct/100*wdStats.n), wdStats.n, baseline), 5) : null;
+  const gapSig = gapStats && baseline!=null ? significanceLabel(proportionPValue(Math.round(gapStats.winPct/100*gapStats.n), gapStats.n, baseline), 4) : null;
   const wdNote = wdStats
-    ? `${wdStats.n} ${wd}s in sample closed above open ${wdStats.winPct.toFixed(0)}% of the time, avg move ${pct(wdStats.avgIntra,2)} (${sampleTag(wdStats.n).label}).`
+    ? `${wdStats.n} ${wd}s in sample closed above open ${wdStats.winPct.toFixed(0)}% of the time, avg move ${pct(wdStats.avgIntra,2)} (${sampleTag(wdStats.n).label}). ${wdSig ? wdSig.text : ''}`
     : 'No weekday sample available for this date.';
   const gapNote = gapStats
-    ? `${gapStats.n} historical gap-${dir} days in the ${bucket} bucket closed above open ${gapStats.winPct.toFixed(0)}% of the time, avg move ${pct(gapStats.avgIntra,2)} (${sampleTag(gapStats.n).label}).`
+    ? `${gapStats.n} historical gap-${dir} days in the ${bucket} bucket closed above open ${gapStats.winPct.toFixed(0)}% of the time, avg move ${pct(gapStats.avgIntra,2)} (${sampleTag(gapStats.n).label}). ${gapSig ? gapSig.text : ''}`
     : 'No gap-bucket sample available.';
   const streakNote = streaks.currentLen
     ? `Currently on a ${streaks.currentLen}-day ${streaks.currentDir} streak (close vs prior close). Historical max in this sample: ${streaks.maxUp}-day up, ${streaks.maxDown}-day down — not a reason to expect reversal or continuation on its own, just where today sits in that context.`

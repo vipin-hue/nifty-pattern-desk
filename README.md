@@ -316,6 +316,30 @@ only runs if nothing's been captured yet that day) — fine for testing,
 just means today's value ends up being whatever this button grabbed
 rather than the actual 9:10am read.
 
+## Significance testing, built into the live numbers
+
+Every weekday and gap-bucket row in the Historical Pattern Match panel
+(and the same stats when they feed into a suggested plan's notes) now
+carries an honest significance label, not just a raw win-rate percentage:
+
+- **Robust** — survives correction for testing multiple categories at once
+- **Weak** — nominally p<0.05 but doesn't survive that correction; a lean,
+  not a proven edge
+- **None** — not distinguishable from the baseline rate
+
+This runs an exact binomial test client-side (implemented from scratch —
+log-gamma via Lanczos approximation, then an exact two-sided binomial
+p-value, since there's no stats library in the browser) and cross-checked
+against `scipy.stats.binomtest` on this exact dataset before shipping —
+matched to 4 decimal places. The correction accounts for how many
+categories were being compared at once (5 weekdays, 4 gap buckets), which
+matters: with the current ~1 year of data, **none of the 5 weekday effects
+survive correction** — Tuesday comes closest but still fails it. That's
+not a bug in the display, that's the honest result of a proper audit; see
+the audit discussion in this project's chat history for the full
+methodology (power analysis, gap-fill significance, autocorrelation
+check) behind why the numbers are labeled this way.
+
 ## Not financial advice
 
 Same as the artifact version: everything this shows is descriptive
