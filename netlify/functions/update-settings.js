@@ -5,9 +5,6 @@ exports.handler = async function (event) {
   try {
     const body = JSON.parse(event.body || '{}');
     const settings = await getSettings();
-    if (typeof body.rangeAlertEnabled === 'boolean') {
-      settings.rangeAlertEnabled = body.rangeAlertEnabled;
-    }
     if (typeof body.vixAlertEnabled === 'boolean') {
       settings.vixAlertEnabled = body.vixAlertEnabled;
     }

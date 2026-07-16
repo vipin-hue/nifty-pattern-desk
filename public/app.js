@@ -2,6 +2,7 @@ const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const LOT_SIZE = 65; // NSE Nifty lot size, verify on your terminal — this changes periodically
 let HIST = [];
 let lastMatchContext = null;
+let lastOptionChain = null;
 
 function fmt(n, d=2){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function pct(n, d=1){ return (n>=0?'+':'') + n.toFixed(d) + '%'; }
@@ -246,8 +247,8 @@ function init(){
   document.getElementById('btnAddLevel').addEventListener('click', ()=> addLevelRow());
   document.getElementById('btnSuggestLevels').addEventListener('click', suggestLevels);
   document.getElementById('btnSavePlan').addEventListener('click', savePlan);
-  document.getElementById('rangeAlertToggle').addEventListener('change', toggleRangeAlert);
   document.getElementById('vixAlertToggle').addEventListener('change', toggleVixAlert);
+  document.getElementById('btnLoadChain').addEventListener('click', loadOptionChain);
   seedDefaultLevels();
 
   loadHistory().then(()=>{
@@ -260,61 +261,13 @@ function init(){
   });
 
   loadTrades();
-  loadRangeStatus();
   loadVixStatus();
-  // Poll for trigger + range + VIX alerts every 60s while this tab is
+  // Poll for trigger + VIX alerts every 60s while this tab is
   // open. This is the "in-platform" notification path — it only reaches
   // you if the tab's open; closed-tab alerts would need a separate
   // push-notification setup.
   setInterval(loadTrades, 60000);
-  setInterval(loadRangeStatus, 60000);
   setInterval(loadVixStatus, 60000);
-}
-
-async function toggleRangeAlert(){
-  const enabled = document.getElementById('rangeAlertToggle').checked;
-  try{
-    await fetch('/api/update-settings', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ rangeAlertEnabled: enabled })
-    });
-  }catch(err){
-    alert(`Could not save the toggle: ${err.message}`);
-    document.getElementById('rangeAlertToggle').checked = !enabled;
-  }
-  loadRangeStatus();
-}
-
-let lastSeenRangeEventCount = 0;
-
-async function loadRangeStatus(){
-  try{
-    const res = await fetch('/api/get-range-status');
-    const json = await res.json();
-    document.getElementById('rangeAlertToggle').checked = !!json.rangeAlertEnabled;
-
-    const el = document.getElementById('rangeStatus');
-    if(!json.rangeAlertEnabled){
-      el.textContent = `Off — today's range isn't being checked.`;
-    } else {
-      const events = (json.log && json.log.events) || [];
-      const fired = events.map(e => `${e.label} at ${e.elapsedPct}% of session (${e.pace})`).join('; ');
-      el.textContent = fired
-        ? `On — today already crossed: ${fired}.`
-        : `On — watching, nothing crossed yet today.`;
-
-      if(events.length > lastSeenRangeEventCount){
-        const newest = events[events.length-1];
-        const urgent = newest.elapsedPct != null && newest.elapsedPct < 40;
-        showAlertBanner(`${urgent?'🔴':'⚠'} Today's range hit ${newest.label} at only ${newest.elapsedPct}% of the session — ${newest.pace}.`);
-        playAlertSound();
-      }
-      lastSeenRangeEventCount = events.length;
-    }
-  }catch(err){
-    document.getElementById('rangeStatus').textContent = `Could not load range status: ${err.message}`;
-  }
 }
 
 async function toggleVixAlert(){
@@ -377,6 +330,39 @@ async function loadVixStatus(){
   }catch(err){
     document.getElementById('vixStatus').textContent = `Could not load VIX status: ${err.message}`;
   }
+}
+
+async function loadOptionChain(){
+  const btn = document.getElementById('btnLoadChain');
+  const statusEl = document.getElementById('chainStatus');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try{
+    const res = await fetch('/api/get-option-chain');
+    const json = await res.json();
+    if(!res.ok || !json.ok){
+      statusEl.textContent = `Could not load option chain: ${json.error || 'unknown error'}. NSE may be blocking this request right now — try again in a bit.`;
+      statusEl.style.color = 'var(--red)';
+      lastOptionChain = null;
+    } else {
+      lastOptionChain = json;
+      const wrap = document.getElementById('chainWrap');
+      wrap.innerHTML = `
+        <div class="snap-cell"><div class="snap-label">Spot</div><div class="snap-val">${fmt(json.spot,0)}</div></div>
+        <div class="snap-cell"><div class="snap-label">ATM IV</div><div class="snap-val neutral">${json.atmIV!=null?json.atmIV.toFixed(1)+'%':'—'}</div></div>
+        <div class="snap-cell"><div class="snap-label">PCR</div><div class="snap-val neutral">${json.pcr!=null?json.pcr.toFixed(2):'—'}</div></div>
+        <div class="snap-cell"><div class="snap-label">Max Pain</div><div class="snap-val neutral">${fmt(json.maxPain,0)}</div></div>
+        <div class="snap-cell"><div class="snap-label">Call OI Wall</div><div class="snap-val down">${fmt(json.callWall,0)}</div></div>
+        <div class="snap-cell"><div class="snap-label">Put OI Wall</div><div class="snap-val up">${fmt(json.putWall,0)}</div></div>`;
+      const stamp = new Date(json.asOf).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+      statusEl.innerHTML = `Loaded at ${stamp}, expiry ${json.expiry}. <span style="color:var(--teal);">Will be used in "Suggest a full plan" below.</span>`;
+      statusEl.style.color = '';
+    }
+  }catch(err){
+    statusEl.textContent = `Option chain request failed: ${err.message}`;
+    statusEl.style.color = 'var(--red)';
+    lastOptionChain = null;
+  }
+  btn.disabled = false; btn.textContent = 'Load option chain';
 }
 
 
@@ -973,6 +959,22 @@ async function suggestLevels(){
     ? `India VIX currently ${vixInfo.latest.toFixed(2)}, ${vixInfo.pctChange>=0?'+':''}${vixInfo.pctChange.toFixed(1)}% since today's open.`
     : 'VIX intraday tracking is off (or no reading yet) — turn it on in the India VIX panel above for live context here.';
 
+  let chainNote = 'Option chain not loaded — click "Load option chain" above for IV, PCR, Max Pain and OI-wall context here.';
+  if(lastOptionChain){
+    const oc = lastOptionChain;
+    const parts = [];
+    if(oc.atmIV != null && atr14){
+      const annualizedRV = (atr14/open) * Math.sqrt(252) * 100;
+      const spread = oc.atmIV - annualizedRV;
+      parts.push(`ATM IV ${oc.atmIV.toFixed(1)}% vs ATR(14)-based annualized realized vol ${annualizedRV.toFixed(1)}% — spread of ${spread>=0?'+':''}${spread.toFixed(1)} points (${spread>0?'IV running above recent realized vol, the traditional condition favoring premium selling':'IV running below recent realized vol, premium may not be compensating for actual movement'}). Single-day snapshot, not a backtested signal — no historical IV percentile exists yet to know if this spread itself is wide or narrow for this market.`);
+    }
+    if(oc.pcr != null) parts.push(`PCR ${oc.pcr.toFixed(2)} (>1.2 typically read as put-heavy/bullish positioning, <0.7 call-heavy/bearish — descriptive only, not validated on this dataset).`);
+    if(oc.callWall != null) parts.push(`Call OI wall at ${fmt(oc.callWall,0)} (${(oc.callWall-R2)>=0?'+':''}${(oc.callWall-R2).toFixed(0)} pts vs this plan's R2 target ${fmt(R2,0)}).`);
+    if(oc.putWall != null) parts.push(`Put OI wall at ${fmt(oc.putWall,0)} (${(oc.putWall-S1)>=0?'+':''}${(oc.putWall-S1).toFixed(0)} pts vs this plan's S1 target ${fmt(S1,0)}).`);
+    if(oc.maxPain != null) parts.push(`Max Pain ${fmt(oc.maxPain,0)}.`);
+    chainNote = parts.join(' ');
+  }
+
   document.getElementById('planLabel').value = `${wd} plan — ${document.getElementById('inDate').value}`;
 
   document.getElementById('planContext').innerHTML = `
@@ -983,6 +985,7 @@ async function suggestLevels(){
       <div class="plan-context-row"><span>Streak</span><b>${streakNote}</b></div>
       <div class="plan-context-row"><span>ATR check</span><b class="${Math.abs(entryToStop) < (atr14||0)*0.3 ? 'plan-context-flag' : ''}">${atrNote}</b></div>
       <div class="plan-context-row"><span>VIX</span><b>${vixNote}</b></div>
+      <div class="plan-context-row"><span>Option chain</span><b>${chainNote}</b></div>
     </div>`;
 
   document.getElementById('planLevelsWrap').innerHTML = '';

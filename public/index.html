@@ -22,26 +22,38 @@
 
   <div class="freshness" id="freshnessBanner">Checking data freshness…</div>
 
+  <!-- Everything below this point either directly feeds "Suggest a full
+       plan" or is the plan/tracking itself. Data-integrity tools that keep
+       the underlying history accurate (but aren't part of generating a
+       suggestion) are collapsed near the bottom. -->
+
   <div class="panel" style="margin-bottom:16px;">
     <p class="panel-title">Volatility — ATR &amp; ADR</p>
-    <p class="panel-desc">Wilder's ATR accounts for gaps (max of today's High-Low, |High-prevClose|, |Low-prevClose|), so it moves more than a plain range average on gap days — which matters here given how often NIFTY gaps. ADR is the plain average, shown at a few lookback lengths so you can see whether volatility is expanding or settling.</p>
+    <p class="panel-desc">Wilder's ATR accounts for gaps (max of today's High-Low, |High-prevClose|, |Low-prevClose|), so it moves more than a plain range average on gap days — which matters here given how often NIFTY gaps. ADR is the plain average, shown at a few lookback lengths so you can see whether volatility is expanding or settling. Both feed the ATR check and streak line in every suggested plan.</p>
     <div class="snapshot" id="volatilityWrap"></div>
-    <div class="event-toggle" style="margin-top:14px;">
-      <input type="checkbox" id="rangeAlertToggle">
-      <label for="rangeAlertToggle">Alert me when today's range reaches ADR(20) or ATR(14) — checked every 30 min during market hours even with no active trade plan, since this is opt-in</label>
-    </div>
-    <div class="hint" id="rangeStatus" style="margin-top:8px;"></div>
   </div>
 
   <div class="panel" style="margin-bottom:16px;">
     <p class="panel-title">India VIX — Intraday</p>
-    <p class="panel-desc">Live-ish VIX level and its % change from today's open, checked every 30 min while this is on. No full historical VIX pattern analysis is built yet — that needs a year of VIX history I don't currently have; if you can pull that as a CSV (NSE or Yahoo's history download), I can build the same weekday/pattern analysis for VIX that exists for Nifty.</p>
+    <p class="panel-desc">Live-ish VIX level and its % change from today's open. Turn this on to have IV-vs-VIX context appear in suggested plans below — off by default, and the plan works without it, just with one less signal.</p>
     <div class="snapshot" id="vixWrap"></div>
     <div class="event-toggle" style="margin-top:14px;">
       <input type="checkbox" id="vixAlertToggle">
-      <label for="vixAlertToggle">Alert me if VIX moves ±10% from today's open — an informal "notable move" threshold, not a statistically derived one</label>
+      <label for="vixAlertToggle">Track VIX and alert me if it moves ±10% from today's open — also required for VIX context to appear in suggested plans</label>
     </div>
     <div class="hint" id="vixStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="journal-head">
+      <div>
+        <p class="panel-title" style="margin:0;">Option Chain — NIFTY, Nearest Weekly Expiry</p>
+        <p class="panel-desc" style="margin:4px 0 0;">Free NSE data (same session pattern as the rest of this app, likely more blocking-prone given the larger payload — that's why this is manual, not scheduled). ATM IV, PCR, Max Pain, and OI walls, computed live. Feeds into "Suggest a full plan" below once loaded — reload before building a plan if it's been a while.</p>
+      </div>
+      <button class="btn secondary" id="btnLoadChain" style="width:auto; padding:6px 12px; font-size:11px;">Load option chain</button>
+    </div>
+    <div class="snapshot" id="chainWrap"><div class="tracker-empty">Not loaded yet — click "Load option chain."</div></div>
+    <div class="hint" id="chainStatus" style="margin-top:8px;"></div>
   </div>
 
   <div class="input-strip">
@@ -60,9 +72,6 @@
     <div class="field field-btn">
       <button class="btn" id="btnCalc">Run pattern match</button>
     </div>
-    <div class="field field-btn">
-      <button class="btn secondary" id="btnCaptureOpenNow">Capture open now</button>
-    </div>
   </div>
   <div class="hint" id="dateHint" style="margin:-8px 0 4px 4px;"></div>
   <div class="hint" id="capturedOpenStatus" style="margin:0 0 16px 4px;"></div>
@@ -70,24 +79,6 @@
   <div id="snapshotWrap"></div>
   <div id="resultsWrap">
     <div class="placeholder">Enter today's open, then run the pattern match.</div>
-  </div>
-
-  <div class="panel" style="margin-top:16px;">
-    <div class="journal-head">
-      <div>
-        <p class="panel-title" style="margin:0;">Confirm Today's Close</p>
-        <p class="panel-desc" style="margin:4px 0 0;">This is the reliable path — type in the actual O/H/L/C once the session's done (from your broker or NSE) and it's saved permanently for every future pattern match. Auto-fetch is a bonus, not the source of truth.</p>
-      </div>
-    </div>
-    <div class="input-strip" style="margin-bottom:0;">
-      <div class="field"><label>Date</label><input type="date" id="logDate"></div>
-      <div class="field"><label>Open</label><input type="number" id="logOpen" step="0.05"></div>
-      <div class="field"><label>High</label><input type="number" id="logHigh" step="0.05"></div>
-      <div class="field"><label>Low</label><input type="number" id="logLow" step="0.05"></div>
-      <div class="field"><label>Close</label><input type="number" id="logClose" step="0.05"></div>
-      <div class="field field-btn"><button class="btn" id="btnLogSave">Save session</button></div>
-    </div>
-    <div class="hint" id="logStatus" style="margin-top:8px;"></div>
   </div>
 
   <div class="panel" style="margin-top:16px;">
@@ -110,22 +101,46 @@
     <div id="tradesList" style="margin-top:20px;"><div class="tracker-empty">Loading…</div></div>
   </div>
 
-  <div class="panel" style="margin-top:16px;">
-    <div class="journal-head">
-      <p class="panel-title" style="margin:0;">History (most recent)</p>
-      <button class="btn secondary" id="btnTriggerFetch" style="width:auto;padding:6px 12px;font-size:11px;">Run auto-fetch now</button>
+  <details class="maintenance">
+    <summary>Data &amp; Maintenance — keeps the history accurate, not part of generating a suggestion</summary>
+
+    <div class="panel" style="margin-top:12px;">
+      <div class="journal-head">
+        <div>
+          <p class="panel-title" style="margin:0;">Confirm Today's Close</p>
+          <p class="panel-desc" style="margin:4px 0 0;">The reliable path — type in the actual O/H/L/C once the session's done (from your broker or NSE) and it's saved permanently. Auto-fetch is a bonus, not the source of truth.</p>
+        </div>
+      </div>
+      <div class="input-strip" style="margin-bottom:0;">
+        <div class="field"><label>Date</label><input type="date" id="logDate"></div>
+        <div class="field"><label>Open</label><input type="number" id="logOpen" step="0.05"></div>
+        <div class="field"><label>High</label><input type="number" id="logHigh" step="0.05"></div>
+        <div class="field"><label>Low</label><input type="number" id="logLow" step="0.05"></div>
+        <div class="field"><label>Close</label><input type="number" id="logClose" step="0.05"></div>
+        <div class="field field-btn"><button class="btn" id="btnLogSave">Save session</button></div>
+      </div>
+      <div class="hint" id="logStatus" style="margin-top:8px;"></div>
+      <div class="hint" style="margin-top:12px;">
+        <button class="btn secondary" id="btnCaptureOpenNow" style="width:auto; padding:6px 12px; font-size:11px;">Capture open now</button>
+        <span style="margin-left:8px;">Forces an immediate open-capture instead of waiting for the scheduled 9:10am run — mainly for testing.</span>
+      </div>
     </div>
-    <table>
-      <thead><tr><th>Date</th><th>Day</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Gap%</th><th>Source</th></tr></thead>
-      <tbody id="historyBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
-    </table>
-  </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <div class="journal-head">
+        <p class="panel-title" style="margin:0;">History (most recent)</p>
+        <button class="btn secondary" id="btnTriggerFetch" style="width:auto;padding:6px 12px;font-size:11px;">Run auto-fetch now</button>
+      </div>
+      <table>
+        <thead><tr><th>Date</th><th>Day</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Gap%</th><th>Source</th></tr></thead>
+        <tbody id="historyBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </details>
 
 </div>
 
 <div class="alert-banner" id="alertBanner"></div>
-
-
 
 <div class="disclaimer">
   Descriptive statistics on historical trading days only. <b>Not predictions, not a trading signal, not financial advice.</b> Confirm live prices and current news before placing any trade.

@@ -10,24 +10,7 @@
 // needs a second, separate call for VIX (^INDIAVIX is a different symbol
 // than ^NSEI, Yahoo doesn't bundle them).
 
-const NSE_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  Referer: 'https://www.nseindia.com/',
-};
-
-async function nseSession() {
-  const homeRes = await fetch('https://www.nseindia.com/', { headers: NSE_HEADERS });
-  if (!homeRes.ok) throw new Error(`NSE homepage returned ${homeRes.status}`);
-  const cookies =
-    typeof homeRes.headers.getSetCookie === 'function'
-      ? homeRes.headers.getSetCookie()
-      : [homeRes.headers.get('set-cookie')].filter(Boolean);
-  if (!cookies.length) throw new Error('NSE gave no session cookie — likely blocked this request');
-  return cookies.map((c) => c.split(';')[0]).join('; ');
-}
+const { NSE_HEADERS, nseSession } = require('./nseSession');
 
 async function fetchFromNSE() {
   const cookieHeader = await nseSession();

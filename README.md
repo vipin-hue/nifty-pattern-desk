@@ -214,18 +214,24 @@ up as its own row inside the Expected Range & Strike Context tiers, next
 to the percentile-based ones, since it's the more standard input for
 sizing how far OTM to sell.
 
-**Range alert** (opt-in toggle, same panel): when on, the scheduled
-watcher also fetches today's running High/Low every 30 minutes — even
-with no trade plan active, which is why it's a separate toggle rather than
-always-on — and alerts you once when today's actual range crosses ADR(20),
-and once more if it crosses ATR(14). Each alert also reports how far into
-the session it happened (NSE's 9:15am-3:30pm window) — hitting the daily
-average range by 11am is a materially different situation than hitting it
-at 3:15pm, even at the same point total, so the alert says so explicitly
-rather than treating every crossing the same. This is a different kind of
-signal than the trade-level alerts: not "price hit X," but "today is
-behaving like an above-average, and possibly unusually fast, volatility
-session." Resets automatically each trading day (IST).
+## Dashboard audit — what got removed
+
+A full audit checked every panel and toggle against one question: does
+this actually feed "Suggest a full plan," or is it standalone? **Range
+alert (the ADR/ATR intraday-range-crossing watcher) failed that test** —
+confirmed by grep that it was never referenced anywhere inside the
+suggestion logic — and was removed entirely: the toggle, its panel
+section, `get-range-status.js`, the range-check logic in
+`watch-trades.js`, `marketSession.js` (only consumer was the range
+check), and the related settings/log storage. If you want it back, it's
+a straightforward re-add — the code existed and worked, it just wasn't
+serving the "required for trade suggestion" bar this audit was checking
+against.
+
+Everything else that's collapsed into "Data & Maintenance" (Confirm
+Today's Close, the raw History table, the manual capture/fetch buttons)
+was kept — it's not part of generating a suggestion, but it *is* what
+keeps the underlying history accurate, which every suggestion depends on.
 
 ## India VIX
 
@@ -339,6 +345,38 @@ not a bug in the display, that's the honest result of a proper audit; see
 the audit discussion in this project's chat history for the full
 methodology (power analysis, gap-fill significance, autocorrelation
 check) behind why the numbers are labeled this way.
+
+## Option chain — IV, PCR, Max Pain, OI walls
+
+A new panel loads NSE's free option-chain data (same session pattern as
+everything else, but likely more blocking-prone given the much larger
+payload — that's why this is a manual "Load option chain" click rather
+than something the scheduled watcher pulls automatically). For the
+nearest weekly expiry it computes:
+
+- **ATM IV** — average of Call+Put implied volatility at the strike
+  nearest to spot
+- **PCR** — total Put OI ÷ total Call OI across the expiry
+- **Max Pain** — the strike where aggregate option-writer payout is
+  smallest (standard definition: for each candidate strike, sum call-OI ×
+  max(0, strike-K) + put-OI × max(0, K-strike) over every strike K, take
+  the minimum). Verified against a hand-computed synthetic example before
+  shipping.
+- **Call/Put OI walls** — the strikes with the largest OI on each side
+
+**This feeds directly into "Suggest a full plan"** once loaded: the Plan
+Context block adds an Option Chain row comparing ATM IV against an
+ATR(14)-based annualized realized-vol estimate (`ATR14/spot × √252 × 100`)
+— IV running above that is the traditional condition favoring premium
+selling, though it's explicitly labeled as a single-day snapshot, not a
+backtested signal, since there's no historical IV series yet to know if
+today's spread is wide or narrow by this market's own standards. The Call
+and Put OI walls are also cross-referenced against the plan's own R2/S1
+pivot targets, so you can see at a glance whether the pivot math and where
+option writers are actually positioned agree or disagree.
+
+Reload the chain before building a new plan if it's been a while — it's
+a live snapshot, not something that updates itself in the background.
 
 ## Not financial advice
 

@@ -154,3 +154,12 @@
 .plan-context-row:last-child{border-bottom:none;}
 .plan-context-row b{color:var(--text);}
 .plan-context-flag{color:var(--amber);}
+
+/* --- Collapsible maintenance section --- */
+.maintenance{margin-top:24px;border-top:1px solid var(--line);padding-top:14px;}
+.maintenance summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);
+  padding:8px 0;list-style:none;user-select:none;}
+.maintenance summary::-webkit-details-marker{display:none;}
+.maintenance summary::before{content:"▸ ";color:var(--amber);}
+.maintenance[open] summary::before{content:"▾ ";}
+.maintenance summary:hover{color:var(--text-dim);}
