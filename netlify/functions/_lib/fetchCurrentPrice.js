@@ -62,13 +62,20 @@ async function fetchNiftyFromYahoo() {
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NiftyPatternDesk/1.0)' } });
   if (!res.ok) throw new Error(`Yahoo fetch returned ${res.status}`);
   const json = await res.json();
-  const meta = json?.chart?.result?.[0]?.meta;
+  const result = json?.chart?.result?.[0];
+  const meta = result?.meta;
   if (!meta || meta.regularMarketPrice == null) throw new Error('Unexpected response shape from Yahoo (no regularMarketPrice)');
+
+  // meta doesn't reliably carry today's open, but the first minute bar's
+  // "open" value is today's actual session open.
+  const opens = result?.indicators?.quote?.[0]?.open || [];
+  const firstOpen = opens.find((v) => v != null);
+
   return {
     price: Number(meta.regularMarketPrice),
     dayHigh: meta.regularMarketDayHigh != null ? Number(meta.regularMarketDayHigh) : null,
     dayLow: meta.regularMarketDayLow != null ? Number(meta.regularMarketDayLow) : null,
-    dayOpen: null, // not reliably present on this endpoint
+    dayOpen: firstOpen != null ? Number(firstOpen) : null,
   };
 }
 

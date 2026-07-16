@@ -278,6 +278,35 @@ version — clicking it did nothing. Caught it while extending the function
 and fixed the listener. Also fixed a repeat of an earlier apostrophe-
 escaping typo that would have broken the whole page on load.
 
+## Auto-captured open
+
+A scheduled function runs once at 9:10am IST on weekdays and tries to
+capture that day's official NIFTY 50 open (NSE first, Yahoo fallback —
+same waterfall as everything else). If it succeeds, the dashboard's
+"Today's open" field pre-fills with it automatically on page load — and,
+if this is the fill that populated the field (never overriding something
+you'd already typed), it also automatically runs the pattern match and
+builds a suggested plan, so opening the dashboard in the morning can show
+you the full analysis with nothing clicked.
+
+**Where the automation deliberately stops:** it never clicks "Start
+tracking this plan." Filling a field, running a match, and building a
+suggestion are all read-only computation with no side effects. Actually
+starting to watch a plan is the point where alerts can start firing —
+that step stays a manual click on purpose.
+
+**Worth knowing:** NSE's pre-open session runs 9:00–9:15am, with price
+discovery still settling as late as ~9:12. A 9:10am snapshot can
+occasionally be a touch provisional rather than the final locked-in open —
+the status line says so explicitly every time. Treat it as a convenience
+pre-fill and a starting-point suggestion, not a guaranteed-final print or
+a validated signal; double-check against your broker before relying on
+either.
+
+If the capture fails (source blocked, market holiday, etc.), the field
+just stays blank for manual entry — same behavior as before this feature
+existed, nothing breaks.
+
 ## Not financial advice
 
 Same as the artifact version: everything this shows is descriptive

@@ -46,10 +46,23 @@ async function saveVixLog(log) {
   await store.setJSON('vixLog', log);
 }
 
+async function getCapturedOpen() {
+  const store = getHistoryStore();
+  const rec = await store.get('capturedOpen', { type: 'json' });
+  if (!rec || rec.date !== todayIST()) return null; // stale from a prior day
+  return rec;
+}
+
+async function saveCapturedOpen(rec) {
+  const store = getHistoryStore();
+  await store.setJSON('capturedOpen', rec);
+}
+
 module.exports = {
   getSettings, saveSettings,
   getRangeLog, saveRangeLog,
   getVixLog, saveVixLog,
+  getCapturedOpen, saveCapturedOpen,
   todayIST,
 };
 

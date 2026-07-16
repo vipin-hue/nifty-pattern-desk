@@ -191,6 +191,9 @@ function init(){
     const last = HIST[HIST.length-1];
     if(last) document.getElementById('inPrevClose').placeholder = `last on file: ${last.c} (${last.d})`;
     loadStatus();
+    // Only safe to auto-fill + auto-run once HIST is actually populated —
+    // prevClose and the pattern match both depend on it.
+    loadCapturedOpen();
   });
 
   loadTrades();
@@ -322,6 +325,42 @@ function updateDateHint(){
     hint.textContent = `${wd} — NSE is normally closed. (Special Sunday sessions do happen, e.g. Budget day — override if this is one.)`;
   } else {
     hint.textContent = `Detected weekday: ${wd}`;
+  }
+}
+
+async function loadCapturedOpen(){
+  const statusEl = document.getElementById('capturedOpenStatus');
+  try{
+    const res = await fetch('/api/get-captured-open');
+    const json = await res.json();
+    const rec = json.captured;
+    if(!rec){
+      statusEl.textContent = `Auto-captured open: none yet today — runs once at 9:10am IST on weekdays, or type the open in yourself.`;
+      return;
+    }
+    const openField = document.getElementById('inOpen');
+    const wasEmpty = !openField.value;
+    if(wasEmpty){
+      openField.value = rec.open;
+    }
+    const stamp = new Date(rec.capturedAt).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+    statusEl.innerHTML = `Auto-captured open: <b>${fmt(rec.open)}</b> via ${rec.source} at ${stamp}. Pre-open matching can still be settling this early — double-check against your broker before relying on it, and overwrite the field above if it looks off.`;
+
+    // Only auto-run the analysis if we just did the fill ourselves — never
+    // steamroll something you were already typing into the field. This
+    // stops at "here's the suggested plan" — starting to actually track
+    // one still needs your click on "Start tracking this plan."
+    if(wasEmpty){
+      statusEl.innerHTML += ` <span style="color:var(--teal);">Running pattern match and building a suggested plan automatically…</span>`;
+      runMatch();
+      await suggestLevels();
+      statusEl.innerHTML = statusEl.innerHTML.replace(
+        /<span style="color:var\(--teal\);">.*?<\/span>/,
+        `<span style="color:var(--green);">Pattern match and suggested plan ready below — review before tracking anything.</span>`
+      );
+    }
+  }catch(err){
+    statusEl.textContent = `Could not check for an auto-captured open: ${err.message}`;
   }
 }
 
