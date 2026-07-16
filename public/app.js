@@ -178,6 +178,7 @@ function init(){
   updateDateHint();
   document.getElementById('inDate').addEventListener('change', updateDateHint);
   document.getElementById('btnCalc').addEventListener('click', runMatch);
+  document.getElementById('btnCaptureOpenNow').addEventListener('click', captureOpenNow);
   document.getElementById('btnLogSave').addEventListener('click', saveSession);
   document.getElementById('btnTriggerFetch').addEventListener('click', triggerFetch);
   document.getElementById('btnAddLevel').addEventListener('click', ()=> addLevelRow());
@@ -326,6 +327,38 @@ function updateDateHint(){
   } else {
     hint.textContent = `Detected weekday: ${wd}`;
   }
+}
+
+async function captureOpenNow(){
+  const btn = document.getElementById('btnCaptureOpenNow');
+  const statusEl = document.getElementById('capturedOpenStatus');
+  btn.disabled = true; btn.textContent = 'Capturing…';
+  try{
+    const res = await fetch('/api/trigger-capture-open', { method: 'POST' });
+    const json = await res.json();
+    if(!res.ok || !json.ok){
+      statusEl.textContent = `Manual capture failed: ${json.error || 'unknown error'}. Type the open in yourself instead.`;
+      statusEl.style.color = 'var(--red)';
+    } else {
+      statusEl.style.color = '';
+      // This overwrites today's stored capture (same as the docs for
+      // trigger-capture-open say) — worth knowing the 9:10am scheduled
+      // job will then skip, since it only runs if nothing's captured yet.
+      // Fine for testing; just means today's value is whatever this
+      // button grabbed, not necessarily the 9:10am one.
+      //
+      // Clear the field first: loadCapturedOpen() only auto-fills and
+      // auto-runs when the field is empty (so it never clobbers manual
+      // typing on page load) — but a deliberate click on this button is
+      // an explicit request to refresh, so it should always take effect.
+      document.getElementById('inOpen').value = '';
+      await loadCapturedOpen();
+    }
+  }catch(err){
+    statusEl.textContent = `Manual capture request failed: ${err.message}`;
+    statusEl.style.color = 'var(--red)';
+  }
+  btn.disabled = false; btn.textContent = 'Capture open now';
 }
 
 async function loadCapturedOpen(){

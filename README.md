@@ -307,6 +307,15 @@ If the capture fails (source blocked, market holiday, etc.), the field
 just stays blank for manual entry — same behavior as before this feature
 existed, nothing breaks.
 
+**To test this without waiting until 9:10am**, click **"Capture open
+now"** next to the input fields — it forces an immediate capture attempt
+and, on success, refreshes the field and re-runs the analysis exactly like
+the real 9:10am trigger would. One thing worth knowing: this overwrites
+today's stored capture, so the scheduled 9:10am job will then skip (it
+only runs if nothing's been captured yet that day) — fine for testing,
+just means today's value ends up being whatever this button grabbed
+rather than the actual 9:10am read.
+
 ## Not financial advice
 
 Same as the artifact version: everything this shows is descriptive
