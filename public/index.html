@@ -22,6 +22,28 @@
 
   <div class="freshness" id="freshnessBanner">Checking data freshness…</div>
 
+  <div class="panel" style="margin-bottom:16px;">
+    <p class="panel-title">Volatility — ATR &amp; ADR</p>
+    <p class="panel-desc">Wilder's ATR accounts for gaps (max of today's High-Low, |High-prevClose|, |Low-prevClose|), so it moves more than a plain range average on gap days — which matters here given how often NIFTY gaps. ADR is the plain average, shown at a few lookback lengths so you can see whether volatility is expanding or settling.</p>
+    <div class="snapshot" id="volatilityWrap"></div>
+    <div class="event-toggle" style="margin-top:14px;">
+      <input type="checkbox" id="rangeAlertToggle">
+      <label for="rangeAlertToggle">Alert me when today's range reaches ADR(20) or ATR(14) — checked every 30 min during market hours even with no active trade plan, since this is opt-in</label>
+    </div>
+    <div class="hint" id="rangeStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <p class="panel-title">India VIX — Intraday</p>
+    <p class="panel-desc">Live-ish VIX level and its % change from today's open, checked every 30 min while this is on. No full historical VIX pattern analysis is built yet — that needs a year of VIX history I don't currently have; if you can pull that as a CSV (NSE or Yahoo's history download), I can build the same weekday/pattern analysis for VIX that exists for Nifty.</p>
+    <div class="snapshot" id="vixWrap"></div>
+    <div class="event-toggle" style="margin-top:14px;">
+      <input type="checkbox" id="vixAlertToggle">
+      <label for="vixAlertToggle">Alert me if VIX moves ±10% from today's open — an informal "notable move" threshold, not a statistically derived one</label>
+    </div>
+    <div class="hint" id="vixStatus" style="margin-top:8px;"></div>
+  </div>
+
   <div class="input-strip">
     <div class="field">
       <label>Session date</label>
@@ -66,6 +88,26 @@
 
   <div class="panel" style="margin-top:16px;">
     <div class="journal-head">
+      <div>
+        <p class="panel-title" style="margin:0;">Trade Plan &amp; Levels</p>
+        <p class="panel-desc" style="margin:4px 0 0;">Click "Track" on a strike tier above for a quick two-level watch, click "Suggest a full plan" below to auto-fill Entry/Target/Stop/Flip from pivot levels and the pattern match above, or build one by hand. Checked every 30 min during market hours, only while a level here is still pending and eligible. This watches the NIFTY 50 index level only — no live option premium feed exists, so there's no P&L here, and nothing here ever places a real order.</p>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:12px;"><label>Plan label</label><input type="text" id="planLabel" placeholder="e.g. 15 Jul short put plan"></div>
+    <div id="planContext"></div>
+    <div id="planLevelsWrap"></div>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button class="btn secondary" id="btnAddLevel" style="width:auto; padding:8px 14px;">+ Add level</button>
+      <button class="btn secondary" id="btnSuggestLevels" style="width:auto; padding:8px 14px;" disabled title="Run a pattern match above first">Suggest a full plan</button>
+      <button class="btn" id="btnSavePlan" style="width:auto; padding:8px 18px;">Start tracking this plan</button>
+    </div>
+    <div class="hint" id="planStatus" style="margin-top:8px;"></div>
+
+    <div id="tradesList" style="margin-top:20px;"><div class="tracker-empty">Loading…</div></div>
+  </div>
+
+  <div class="panel" style="margin-top:16px;">
+    <div class="journal-head">
       <p class="panel-title" style="margin:0;">History (most recent)</p>
       <button class="btn secondary" id="btnTriggerFetch" style="width:auto;padding:6px 12px;font-size:11px;">Run auto-fetch now</button>
     </div>
@@ -76,6 +118,10 @@
   </div>
 
 </div>
+
+<div class="alert-banner" id="alertBanner"></div>
+
+
 
 <div class="disclaimer">
   Descriptive statistics on historical trading days only. <b>Not predictions, not a trading signal, not financial advice.</b> Confirm live prices and current news before placing any trade.

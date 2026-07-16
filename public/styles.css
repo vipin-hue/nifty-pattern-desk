@@ -71,7 +71,7 @@
 
   /* Range panel */
   .range-tiers{display:flex;flex-direction:column;gap:10px;}
-  .tier{display:grid;grid-template-columns:90px 1fr 90px;align-items:center;gap:12px;border:1px solid var(--line-soft);border-radius:8px;padding:10px 12px;background:var(--panel-2);}
+  .tier{display:grid;grid-template-columns:90px 1fr 70px 70px;align-items:center;gap:12px;border:1px solid var(--line-soft);border-radius:8px;padding:10px 12px;background:var(--panel-2);}
   .tier-name{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
   .tier-strikes{font-family:var(--mono);font-size:14px;font-weight:600;text-align:center;}
   .tier-strikes .call{color:var(--red);} .tier-strikes .put{color:var(--green);}
@@ -107,3 +107,50 @@
 .freshness.ok{border-color:var(--green-dim);color:#bdeccf;background:rgba(63,190,114,0.08);}
 .freshness.warn{border-color:var(--red);color:#ffd9d6;background:rgba(229,83,75,0.1);}
 .journal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;flex-wrap:wrap;}
+
+/* --- Trade tracking additions --- */
+.track-btn{width:auto;padding:6px 4px;font-size:10px;}
+.trade-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--line-soft);border-radius:8px;padding:10px 14px;margin-bottom:8px;background:var(--panel-2);}
+.trade-row.triggered{border-color:var(--amber);background:rgba(227,160,8,0.08);}
+.trade-info{display:flex;flex-direction:column;gap:3px;}
+.trade-label{font-size:13px;font-weight:600;}
+.trade-levels{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
+.trade-status{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:10px;}
+.trade-status.active{background:var(--green-dim);color:#bdeccf;}
+.trade-status.triggered{background:var(--amber-dim);color:#ffe3a3;}
+.trade-status.closed{background:var(--line-soft);color:var(--text-faint);}
+.trade-actions{display:flex;gap:8px;}
+.trade-actions button{width:auto;padding:6px 10px;font-size:10.5px;}
+.alert-banner{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:50;background:var(--amber);color:#181205;
+  padding:12px 20px;border-radius:8px;font-family:var(--mono);font-size:12.5px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  display:none;max-width:90vw;text-align:center;}
+.alert-banner.show{display:block;}
+.tracker-empty{color:var(--text-faint);font-family:var(--mono);font-size:11.5px;padding:10px 0;}
+
+/* --- Multi-level trade plan additions --- */
+.level-row{display:grid;grid-template-columns:100px 80px 90px 1fr 150px 32px;gap:8px;align-items:center;margin-bottom:8px;}
+.level-row select, .level-row input{background:var(--ink);border:1px solid var(--line);color:var(--text);font-family:var(--mono);font-size:12.5px;padding:8px 9px;border-radius:6px;}
+.level-row select:focus, .level-row input:focus{outline:none;border-color:var(--amber);}
+.level-remove{background:none;border:1px solid var(--line);color:var(--text-faint);border-radius:6px;cursor:pointer;height:34px;}
+.level-remove:hover{border-color:var(--red);color:var(--red);}
+.type-chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;display:inline-block;}
+.type-chip.entry{background:var(--teal);color:#062226;}
+.type-chip.target{background:var(--green-dim);color:#bdeccf;}
+.type-chip.stop{background:var(--red-dim);color:#ffd9d6;}
+.type-chip.flip{background:var(--amber-dim);color:#ffe3a3;}
+.type-chip.note{background:var(--line-soft);color:var(--text-dim);}
+.level-checklist{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+.level-item{display:flex;align-items:flex-start;gap:8px;font-family:var(--mono);font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--line-soft);}
+.level-item:last-child{border-bottom:none;}
+.level-item.hit{color:var(--text);}
+.level-item.pending{color:var(--text-faint);}
+.level-check{width:16px;flex-shrink:0;}
+.level-note{color:var(--text-dim);font-family:var(--sans);font-size:11.5px;margin-top:2px;}
+
+/* --- Plan context summary --- */
+.plan-context{border:1px solid var(--teal);border-radius:8px;padding:12px 14px;margin-bottom:14px;background:rgba(79,180,201,0.06);}
+.plan-context-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);margin-bottom:8px;}
+.plan-context-row{display:flex;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:11.5px;color:var(--text-dim);padding:4px 0;border-bottom:1px solid var(--line-soft);}
+.plan-context-row:last-child{border-bottom:none;}
+.plan-context-row b{color:var(--text);}
+.plan-context-flag{color:var(--amber);}

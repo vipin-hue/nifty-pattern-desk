@@ -1,6 +1,7 @@
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const LOT_SIZE = 65; // NSE Nifty lot size, verify on your terminal — this changes periodically
 let HIST = [];
+let lastMatchContext = null;
 
 function fmt(n, d=2){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function pct(n, d=1){ return (n>=0?'+':'') + n.toFixed(d) + '%'; }
@@ -40,13 +41,86 @@ function sampleTag(n){
   return {label:'reasonable sample', cls:''};
 }
 
+// True Range accounts for gaps (max of today's H-L, |H-prevClose|,
+// |L-prevClose|) — matters here given how often NIFTY gaps. ATR uses
+// Wilder's smoothing, the standard method every charting platform uses,
+// not a plain moving average.
+function trueRange(row){
+  if(row.pc == null) return row.h - row.l;
+  return Math.max(row.h - row.l, Math.abs(row.h - row.pc), Math.abs(row.l - row.pc));
+}
+
+function computeATR(rows, period){
+  if(rows.length < period) return null;
+  const tr = rows.map(trueRange);
+  let atr = tr.slice(0, period).reduce((a,b)=>a+b,0) / period;
+  for(let i = period; i < tr.length; i++){
+    atr = (atr*(period-1) + tr[i]) / period;
+  }
+  return atr;
+}
+
+function computeADR(rows, period){
+  if(rows.length < period) return null;
+  const recent = rows.slice(-period);
+  return recent.reduce((a,r)=>a+r.rangePts,0) / period;
+}
+
+// Streaks use close vs PREVIOUS close (the standard "up day / down day"
+// definition), not candle color (close vs that day's own open) — matches
+// the original workbook's Sign/Streak columns exactly.
+function computeStreaks(rows){
+  const valid = rows.filter(r => r.pc != null);
+  let currentLen = 0, currentDir = null;
+  for(let i = valid.length-1; i>=0; i--){
+    const r = valid[i];
+    if(r.c === r.pc) break;
+    const dir = r.c > r.pc ? 'up' : 'down';
+    if(currentDir === null){ currentDir = dir; currentLen = 1; }
+    else if(dir === currentDir){ currentLen++; }
+    else break;
+  }
+  let maxUp=0, maxDown=0, runLen=0, runDir=null;
+  for(const r of valid){
+    if(r.c === r.pc){ runDir=null; runLen=0; continue; }
+    const dir = r.c > r.pc ? 'up' : 'down';
+    if(dir === runDir) runLen++; else { runDir = dir; runLen = 1; }
+    if(dir === 'up') maxUp = Math.max(maxUp, runLen); else maxDown = Math.max(maxDown, runLen);
+  }
+  return { currentLen, currentDir, maxUp, maxDown };
+}
+
 async function loadHistory(){
   const res = await fetch('/api/get-history');
   const json = await res.json();
   HIST = json.rows || [];
   document.getElementById('sampleBadge').innerHTML = `Sample base: <b>${HIST.length}</b> trading days · ${HIST[0]?.d} → ${HIST[HIST.length-1]?.d}`;
   renderHistoryTable();
+  renderVolatility();
   return json;
+}
+
+function renderVolatility(){
+  const el = document.getElementById('volatilityWrap');
+  if(!el) return;
+  const lastClose = HIST.length ? HIST[HIST.length-1].c : null;
+  const atr14 = computeATR(HIST, 14);
+  const adr5 = computeADR(HIST, 5);
+  const adr10 = computeADR(HIST, 10);
+  const adr20 = computeADR(HIST, 20);
+  const streaks = computeStreaks(HIST);
+
+  const cell = (label, pts) => {
+    if(pts == null) return `<div class="snap-cell"><div class="snap-label">${label}</div><div class="snap-val neutral">n/a</div></div>`;
+    const pctVal = lastClose ? (pts/lastClose*100).toFixed(2) : null;
+    return `<div class="snap-cell"><div class="snap-label">${label}</div><div class="snap-val">${pts.toFixed(0)} pts${pctVal?` <span style="font-size:11px;color:var(--text-dim);">(${pctVal}%)</span>`:''}</div></div>`;
+  };
+
+  const streakCell = streaks.currentLen
+    ? `<div class="snap-cell"><div class="snap-label">Current Streak</div><div class="snap-val ${streaks.currentDir==='up'?'up':'down'}">${streaks.currentLen}${streaks.currentDir==='up'?'↑':'↓'} <span style="font-size:11px;color:var(--text-dim);">(max ${streaks.currentDir==='up'?streaks.maxUp:streaks.maxDown} in sample)</span></div></div>`
+    : `<div class="snap-cell"><div class="snap-label">Current Streak</div><div class="snap-val neutral">n/a</div></div>`;
+
+  el.innerHTML = cell('ATR (14, Wilder)', atr14) + cell('ADR (5)', adr5) + cell('ADR (10)', adr10) + cell('ADR (20)', adr20) + streakCell;
 }
 
 async function loadStatus(){
@@ -106,13 +180,139 @@ function init(){
   document.getElementById('btnCalc').addEventListener('click', runMatch);
   document.getElementById('btnLogSave').addEventListener('click', saveSession);
   document.getElementById('btnTriggerFetch').addEventListener('click', triggerFetch);
+  document.getElementById('btnAddLevel').addEventListener('click', ()=> addLevelRow());
+  document.getElementById('btnSuggestLevels').addEventListener('click', suggestLevels);
+  document.getElementById('btnSavePlan').addEventListener('click', savePlan);
+  document.getElementById('rangeAlertToggle').addEventListener('change', toggleRangeAlert);
+  document.getElementById('vixAlertToggle').addEventListener('change', toggleVixAlert);
+  seedDefaultLevels();
 
   loadHistory().then(()=>{
     const last = HIST[HIST.length-1];
     if(last) document.getElementById('inPrevClose').placeholder = `last on file: ${last.c} (${last.d})`;
     loadStatus();
   });
+
+  loadTrades();
+  loadRangeStatus();
+  loadVixStatus();
+  // Poll for trigger + range + VIX alerts every 60s while this tab is
+  // open. This is the "in-platform" notification path — it only reaches
+  // you if the tab's open; closed-tab alerts would need a separate
+  // push-notification setup.
+  setInterval(loadTrades, 60000);
+  setInterval(loadRangeStatus, 60000);
+  setInterval(loadVixStatus, 60000);
 }
+
+async function toggleRangeAlert(){
+  const enabled = document.getElementById('rangeAlertToggle').checked;
+  try{
+    await fetch('/api/update-settings', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ rangeAlertEnabled: enabled })
+    });
+  }catch(err){
+    alert(`Could not save the toggle: ${err.message}`);
+    document.getElementById('rangeAlertToggle').checked = !enabled;
+  }
+  loadRangeStatus();
+}
+
+let lastSeenRangeEventCount = 0;
+
+async function loadRangeStatus(){
+  try{
+    const res = await fetch('/api/get-range-status');
+    const json = await res.json();
+    document.getElementById('rangeAlertToggle').checked = !!json.rangeAlertEnabled;
+
+    const el = document.getElementById('rangeStatus');
+    if(!json.rangeAlertEnabled){
+      el.textContent = `Off — today's range isn't being checked.`;
+    } else {
+      const events = (json.log && json.log.events) || [];
+      const fired = events.map(e => `${e.label} at ${e.elapsedPct}% of session (${e.pace})`).join('; ');
+      el.textContent = fired
+        ? `On — today already crossed: ${fired}.`
+        : `On — watching, nothing crossed yet today.`;
+
+      if(events.length > lastSeenRangeEventCount){
+        const newest = events[events.length-1];
+        const urgent = newest.elapsedPct != null && newest.elapsedPct < 40;
+        showAlertBanner(`${urgent?'🔴':'⚠'} Today's range hit ${newest.label} at only ${newest.elapsedPct}% of the session — ${newest.pace}.`);
+        playAlertSound();
+      }
+      lastSeenRangeEventCount = events.length;
+    }
+  }catch(err){
+    document.getElementById('rangeStatus').textContent = `Could not load range status: ${err.message}`;
+  }
+}
+
+async function toggleVixAlert(){
+  const enabled = document.getElementById('vixAlertToggle').checked;
+  try{
+    await fetch('/api/update-settings', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ vixAlertEnabled: enabled })
+    });
+  }catch(err){
+    alert(`Could not save the toggle: ${err.message}`);
+    document.getElementById('vixAlertToggle').checked = !enabled;
+  }
+  loadVixStatus();
+}
+
+let lastSeenVixEventCount = 0;
+
+async function loadVixStatus(){
+  try{
+    const res = await fetch('/api/get-vix-status');
+    const json = await res.json();
+    document.getElementById('vixAlertToggle').checked = !!json.vixAlertEnabled;
+
+    const log = json.log || {};
+    const readings = log.readings || [];
+    const latest = readings.length ? readings[readings.length-1].vix : null;
+    const openVix = log.openVix;
+    const pctChange = (latest != null && openVix) ? ((latest-openVix)/openVix*100) : null;
+
+    const wrap = document.getElementById('vixWrap');
+    if(latest == null){
+      wrap.innerHTML = `<div class="snap-cell"><div class="snap-label">India VIX</div><div class="snap-val neutral">Not tracked yet — turn on below</div></div>`;
+    } else {
+      const dirClass = pctChange >= 0 ? 'up' : 'down';
+      wrap.innerHTML = `
+        <div class="snap-cell"><div class="snap-label">VIX Now</div><div class="snap-val">${latest.toFixed(2)}</div></div>
+        <div class="snap-cell"><div class="snap-label">Today's Open</div><div class="snap-val neutral">${openVix!=null?openVix.toFixed(2):'—'}</div></div>
+        <div class="snap-cell"><div class="snap-label">Change Since Open</div><div class="snap-val ${dirClass}">${pctChange!=null?pct(pctChange,1):'—'}</div></div>`;
+    }
+
+    const el = document.getElementById('vixStatus');
+    if(!json.vixAlertEnabled){
+      el.textContent = `Off — VIX isn't being checked.`;
+    } else {
+      const events = log.events || [];
+      const fired = events.map(e => `${e.direction==='up'?'up':'down'} ${Math.abs(e.pctChange)}% (${e.openVix} → ${e.vix})`).join('; ');
+      el.textContent = fired
+        ? `On — today already: ${fired}.`
+        : `On — watching, no ±10% move yet today.`;
+
+      if(events.length > lastSeenVixEventCount){
+        const newest = events[events.length-1];
+        showAlertBanner(`⚠ India VIX moved ${newest.direction} ${Math.abs(newest.pctChange)}% from today's open (${newest.openVix} → ${newest.vix})`);
+        playAlertSound();
+      }
+      lastSeenVixEventCount = events.length;
+    }
+  }catch(err){
+    document.getElementById('vixStatus').textContent = `Could not load VIX status: ${err.message}`;
+  }
+}
+
 
 function updateDateHint(){
   const d = new Date(document.getElementById('inDate').value + 'T00:00:00');
@@ -150,8 +350,12 @@ function runMatch(){
   const gapRows = HIST.filter(r => r.gap!=null && gapBucket(Math.abs(r.gap))===bucket && (r.gap>=0)===(gapPct>=0));
   const combinedRows = isWeekday ? HIST.filter(r => r.wd===wd && r.gap!=null && gapBucket(Math.abs(r.gap))===bucket && (r.gap>=0)===(gapPct>=0)) : [];
 
-  renderMatches({wdRows, gapRows, combinedRows, wd, bucket, dir, isWeekday});
+  renderMatches({wdRows, gapRows, combinedRows, wd, bucket, dir, isWeekday, open});
   renderRangePanel({open, gapRows});
+
+  lastMatchContext = { open, prevClose, wd, bucket, dir, isWeekday, wdRows, gapRows };
+  const suggestBtn = document.getElementById('btnSuggestLevels');
+  if(suggestBtn) suggestBtn.disabled = false;
 }
 
 function renderSnapshot(s){
@@ -167,10 +371,25 @@ function renderSnapshot(s){
     </div>`;
 }
 
-function barRow(name, rows){
+function barRow(name, rows, open){
   const s = summarize(rows);
   if(!s) return `<div class="match-row"><div class="match-head"><div class="match-name">${name}</div><div class="match-n low">n = 0</div></div><div class="hint">No historical sessions match this exact condition.</div></div>`;
   const tag = sampleTag(s.n);
+
+  let projection = '';
+  if(open){
+    // Project a close range from the avg move and its spread, and a
+    // high/low band from the median day range — centered where the data
+    // actually centers (avg move), not just symmetric around open.
+    const closeMid = open * (1 + s.avgIntra/100);
+    const halfRange = s.medRangePts/2;
+    projection = `
+      <div class="match-stats" style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--line-soft);">
+        <span>Projected close: <b>~${fmt(closeMid,0)}</b></span>
+        <span>Projected High/Low band: <b>${fmt(closeMid-halfRange,0)} – ${fmt(closeMid+halfRange,0)}</b></span>
+      </div>`;
+  }
+
   return `
     <div class="match-row">
       <div class="match-head">
@@ -183,25 +402,26 @@ function barRow(name, rows){
         <span>Avg open→close: <b>${pct(s.avgIntra,2)}</b></span>
         <span>Avg day range: <b>${s.avgRangePts.toFixed(0)} pts</b> (${s.avgRangePct.toFixed(2)}%)</span>
       </div>
+      ${projection}
     </div>`;
 }
 
-function renderMatches({wdRows, gapRows, combinedRows, wd, bucket, dir, isWeekday}){
+function renderMatches({wdRows, gapRows, combinedRows, wd, bucket, dir, isWeekday, open}){
   let html = `<div class="grid"><div class="panel">
     <p class="panel-title">Historical Pattern Match</p>
-    <p class="panel-desc">Each row is one dimension checked separately against the full sample. They're shown apart on purpose — combining weekday + gap size shrinks the sample fast and starts fitting noise, not signal.</p>`;
+    <p class="panel-desc">Each row is one dimension checked separately against the full sample, with a projected close/High-Low band from that row's own numbers. They're shown apart on purpose — combining weekday + gap size shrinks the sample fast, and a projection built on n=1 or n=2 is noise wearing a percentage sign, not a guess worth trusting. Check the sample size on every row before leaning on its projection.</p>`;
 
   if(isWeekday){
-    html += barRow(`All ${wd}s`, wdRows);
+    html += barRow(`All ${wd}s`, wdRows, open);
   } else {
     html += `<div class="match-row"><div class="hint">Not a Mon–Fri session by the date entered — weekday stats skipped.</div></div>`;
   }
-  html += barRow(`All gap-${dir} days, ${bucket}`, gapRows);
+  html += barRow(`All gap-${dir} days, ${bucket}`, gapRows, open);
 
   if(isWeekday && combinedRows.length >= 12){
-    html += barRow(`${wd} + gap-${dir} ${bucket} (combined)`, combinedRows);
+    html += barRow(`${wd} + gap-${dir} ${bucket} (combined)`, combinedRows, open);
   } else if(isWeekday){
-    html += `<div class="warn-inline">Combined weekday+gap slice has only ${combinedRows.length} historical matches — too thin to show separately, folded into the two rows above instead.</div>`;
+    html += `<div class="warn-inline">Combined weekday+gap slice has only ${combinedRows.length} historical matches (some cells in this dataset run as low as n=1) — too thin to project anything from on its own, folded into the two single-dimension rows above instead.</div>`;
   }
 
   html += `</div><div class="panel" id="rangePanel"><p class="panel-title">Expected Range &amp; Strike Context</p><p class="panel-desc">Loading…</p></div></div>`;
@@ -212,6 +432,7 @@ function renderRangePanel({open, gapRows}){
   const base = gapRows.length >= 20 ? gapRows : HIST;
   const usedLabel = gapRows.length >= 20 ? `gap-matched days (n=${gapRows.length})` : `full ${HIST.length}-day sample (gap slice too thin)`;
   const s = summarize(base);
+  const atr14 = computeATR(HIST, 14);
 
   const tiers = [
     {name:'Tight', pts: s.medRangePts/2},
@@ -219,21 +440,23 @@ function renderRangePanel({open, gapRows}){
     {name:'Wide (75th pct)', pts: s.p75RangePts},
     {name:'Very wide (90th pct)', pts: s.p90RangePts},
   ];
+  if(atr14) tiers.push({name:'ATR (14)', pts: atr14, isAtr: true});
 
   const rows = tiers.map(t=>{
     const half = t.pts/2;
     const callStrike = roundTo(open+half, 50);
     const putStrike = roundTo(open-half, 50);
-    return `<div class="tier">
+    return `<div class="tier" ${t.isAtr ? 'style="border-color:var(--teal);"' : ''}>
       <div class="tier-name">${t.name}</div>
       <div class="tier-strikes"><span class="put">${putStrike}</span> &nbsp;–&nbsp; <span class="call">${callStrike}</span></div>
       <div class="tier-pct">±${half.toFixed(0)} pts</div>
+      <button class="btn secondary track-btn" data-put="${putStrike}" data-call="${callStrike}" data-tier="${t.name}">Track</button>
     </div>`;
   }).join('');
 
   document.getElementById('rangePanel').innerHTML = `
     <p class="panel-title">Expected Range &amp; Strike Context</p>
-    <p class="panel-desc">Based on ${usedLabel}. Distance from today's open where day's High/Low historically landed — use as a reference for how far OTM to sell, not as a guarantee price won't go further.</p>
+    <p class="panel-desc">Based on ${usedLabel}, plus a full-history ATR(14) row for a gap-aware reference alongside the percentile-based ones. Distance from today's open where day's High/Low historically landed — use as a reference for how far OTM to sell, not as a guarantee price won't go further.</p>
     <div class="range-tiers">${rows}</div>
     <div class="hint" style="margin-top:10px;">Strikes rounded to nearest 50. Lot size assumed ${LOT_SIZE} — confirm current lot size on your broker terminal before sizing.</div>
     <div class="event-toggle">
@@ -246,6 +469,7 @@ function renderRangePanel({open, gapRows}){
   document.getElementById('eventFlag').addEventListener('change', function(){
     document.getElementById('eventBanner').classList.toggle('show', this.checked);
   });
+  wireTrackButtons();
 }
 
 async function saveSession(){
@@ -298,6 +522,341 @@ async function triggerFetch(){
   }
   btn.disabled = false;
   btn.textContent = 'Run auto-fetch now';
+}
+
+// ---------- Trade plan tracking (multi-level) ----------
+let lastSeenHitIds = new Set(JSON.parse(sessionStorage.getItem('seenHits') || '[]'));
+let levelRowCount = 0;
+
+function markSeen(key){
+  lastSeenHitIds.add(key);
+  sessionStorage.setItem('seenHits', JSON.stringify([...lastSeenHitIds]));
+}
+
+function addLevelRow(prefill){
+  const wrap = document.getElementById('planLevelsWrap');
+  const rowId = `lvlrow_${levelRowCount++}`;
+  const div = document.createElement('div');
+  div.className = 'level-row';
+  div.id = rowId;
+  const p = prefill || {};
+  div.innerHTML = `
+    <select class="lvl-type">
+      <option value="entry" ${p.type==='entry'?'selected':''}>Entry</option>
+      <option value="target" ${p.type==='target'?'selected':''}>Target</option>
+      <option value="stop" ${p.type==='stop'?'selected':''}>Stop</option>
+      <option value="flip" ${p.type==='flip'?'selected':''}>Flip (bi-dir)</option>
+      <option value="note" ${(!p.type||p.type==='note')?'selected':''}>Note</option>
+    </select>
+    <select class="lvl-dir">
+      <option value="above" ${p.direction!=='below'?'selected':''}>Above</option>
+      <option value="below" ${p.direction==='below'?'selected':''}>Below</option>
+    </select>
+    <input type="number" class="lvl-price" step="1" placeholder="Level" value="${p.price!=null?p.price:''}">
+    <input type="text" class="lvl-note" placeholder="What to do (e.g. Sell 24250 CE / buy 24350 CE hedge)" value="${p.note||''}">
+    <select class="lvl-depends"><option value="">No dependency</option></select>
+    <button class="level-remove" title="Remove">✕</button>
+  `;
+  div.querySelector('.level-remove').addEventListener('click', ()=>{ div.remove(); refreshDependsOnOptions(); });
+  div.querySelector('.lvl-type').addEventListener('change', refreshDependsOnOptions);
+  wrap.appendChild(div);
+  refreshDependsOnOptions();
+  if(p._dependsOnRowIndex != null){
+    // set after options exist for this new row
+    const rows = [...document.querySelectorAll('.level-row')];
+    const sel = div.querySelector('.lvl-depends');
+    if(sel) sel.value = String(p._dependsOnRowIndex);
+  }
+}
+
+function refreshDependsOnOptions(){
+  const rows = [...document.querySelectorAll('.level-row')];
+  rows.forEach((row, idx) => {
+    const sel = row.querySelector('.lvl-depends');
+    const prevValue = sel.value;
+    const typeLabel = row.querySelector('.lvl-type').selectedOptions[0].textContent;
+    sel.innerHTML = '<option value="">No dependency</option>' + rows
+      .map((r, i) => i === idx ? null : `<option value="${i}">After Level ${i+1} (${r.querySelector('.lvl-type').selectedOptions[0].textContent})</option>`)
+      .filter(Boolean).join('');
+    if(prevValue && rows[Number(prevValue)]) sel.value = prevValue;
+  });
+}
+
+function readLevelRows(){
+  const rows = [...document.querySelectorAll('.level-row')];
+  return rows.map((row) => {
+    const dependsVal = row.querySelector('.lvl-depends').value;
+    return {
+      type: row.querySelector('.lvl-type').value,
+      direction: row.querySelector('.lvl-dir').value,
+      price: parseFloat(row.querySelector('.lvl-price').value),
+      note: row.querySelector('.lvl-note').value.trim(),
+      dependsOnIndex: dependsVal === '' ? null : Number(dependsVal),
+    };
+  }).filter(l => !isNaN(l.price));
+}
+
+async function loadTrades(){
+  try{
+    const res = await fetch('/api/list-trades');
+    const json = await res.json();
+    renderTrades(json.trades || []);
+    checkForNewHits(json.trades || []);
+  }catch(err){
+    document.getElementById('tradesList').innerHTML = `<div class="tracker-empty">Could not load trades: ${err.message}</div>`;
+  }
+}
+
+function renderTrades(trades){
+  const el = document.getElementById('tradesList');
+  const visible = trades.filter(t => t.status !== 'closed');
+  if(visible.length === 0){
+    el.innerHTML = '<div class="tracker-empty">Nothing tracked right now.</div>';
+    return;
+  }
+  el.innerHTML = visible.map(t => {
+    const levelItems = (t.levels||[]).map(lvl => {
+      const dirWord = lvl.direction === 'above' ? 'crosses above' : 'falls below';
+      const hitInfo = lvl.status === 'hit'
+        ? ` — hit at ${fmt(lvl.hitPrice,2)}, ${new Date(lvl.hitAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`
+        : '';
+      return `<div class="level-item ${lvl.status}">
+        <span class="level-check">${lvl.status==='hit'?'✅':'⬜'}</span>
+        <div>
+          <span class="type-chip ${lvl.type}">${lvl.type}</span>
+          <span> ${dirWord} ${fmt(lvl.price,0)}${hitInfo}</span>
+          ${lvl.note ? `<div class="level-note">${lvl.note}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    return `
+      <div class="trade-row" style="flex-direction:column; align-items:stretch;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div class="trade-label">${t.label}</div>
+          <button class="btn secondary" style="width:auto; padding:6px 10px; font-size:10.5px;" onclick="closeTrade('${t.id}')">Close plan</button>
+        </div>
+        <div class="level-checklist">${levelItems}</div>
+      </div>`;
+  }).join('');
+}
+
+function checkForNewHits(trades){
+  for(const t of trades){
+    for(const lvl of (t.levels||[])){
+      if(lvl.status !== 'hit') continue;
+      const key = lvl.id + '_' + lvl.hitAt;
+      if(lastSeenHitIds.has(key)) continue;
+      showAlertBanner(`⚠ "${t.label}" — ${lvl.type.toUpperCase()} ${lvl.direction} ${fmt(lvl.price,0)} hit at ${fmt(lvl.hitPrice,2)}${lvl.note ? ' — ' + lvl.note : ''}`);
+      markSeen(key);
+      playAlertSound();
+      return; // one banner at a time, next poll will surface any others
+    }
+  }
+}
+
+function showAlertBanner(text){
+  const el = document.getElementById('alertBanner');
+  el.textContent = text;
+  el.classList.add('show');
+  setTimeout(()=> el.classList.remove('show'), 15000);
+}
+
+function playAlertSound(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+  }catch(e){ /* audio not available, banner still shows */ }
+}
+
+async function createTradePlan(label, levels){
+  const res = await fetch('/api/track-trade', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ label, levels })
+  });
+  const json = await res.json();
+  if(!res.ok) throw new Error(json.error || 'Could not create plan');
+  await loadTrades();
+}
+
+async function closeTrade(id){
+  await fetch('/api/update-trade', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, action:'close'}) });
+  await loadTrades();
+}
+
+function wireTrackButtons(){
+  document.querySelectorAll('.track-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const put = parseFloat(btn.dataset.put);
+      const call = parseFloat(btn.dataset.call);
+      const tier = btn.dataset.tier;
+      btn.disabled = true; btn.textContent = '…';
+      try{
+        await createTradePlan(`${tier} strangle`, [
+          { type:'target', direction:'above', price: call, note: 'Call side breached — consider booking / adjusting' },
+          { type:'target', direction:'below', price: put, note: 'Put side breached — consider booking / adjusting' },
+        ]);
+        btn.textContent = 'Tracked ✓';
+      }catch(err){
+        alert(`Could not track: ${err.message}`);
+        btn.disabled = false; btn.textContent = 'Track';
+      }
+    });
+  });
+}
+
+async function savePlan(){
+  const label = document.getElementById('planLabel').value.trim();
+  const levels = readLevelRows();
+  const statusEl = document.getElementById('planStatus');
+  if(!label || levels.length === 0){
+    statusEl.textContent = 'Add a label and at least one level with a price.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  // Safety check: a level already on the "wrong" side of the last known
+  // price will fire the moment the next 30-min check runs, not on a real
+  // future move. Compare against the last recorded close as a rough guide
+  // (not live — good enough to catch an obvious mistake) and ask before
+  // saving anything that looks already-triggered.
+  const lastClose = HIST.length ? HIST[HIST.length-1].c : null;
+  if(lastClose != null){
+    const alreadyPast = levels.filter(l =>
+      (l.direction==='above' && lastClose >= l.price) ||
+      (l.direction==='below' && lastClose <= l.price)
+    );
+    if(alreadyPast.length){
+      const list = alreadyPast.map(l => `${l.type} ${l.direction} ${l.price}`).join(', ');
+      const proceed = confirm(`These levels are already past the last known price (${fmt(lastClose)}) and will likely alert immediately: ${list}. Save anyway?`);
+      if(!proceed) return;
+    }
+  }
+
+  try{
+    await createTradePlan(label, levels);
+    statusEl.textContent = `Tracking "${label}" — ${levels.length} level(s).`;
+    statusEl.style.color = 'var(--green)';
+    document.getElementById('planLabel').value = '';
+    document.getElementById('planLevelsWrap').innerHTML = '';
+    seedDefaultLevels();
+  }catch(err){
+    statusEl.textContent = `Could not save: ${err.message}`;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function seedDefaultLevels(){
+  addLevelRow({type:'entry', direction:'above', price:'', note:''});
+  addLevelRow({type:'target', direction:'above', price:'', note:''});
+  addLevelRow({type:'stop', direction:'below', price:'', note:''});
+}
+
+// ---------- Suggest a full plan ----------
+// Standard floor pivots off the previous session's H/L/C, in the same
+// bullish-entry / profit-booking / rejection-flip / stop sequence worked
+// through in the 15-Jul retrospective — with the notes pulling real numbers
+// from the pattern match above (sample size and all), not invented ones.
+async function suggestLevels(){
+  if(!lastMatchContext){
+    alert('Run a pattern match above first — the plan uses its numbers.');
+    return;
+  }
+  const prevRow = HIST[HIST.length-1];
+  if(!prevRow){ alert('No history loaded yet.'); return; }
+
+  const btn = document.getElementById('btnSuggestLevels');
+  btn.disabled = true; btn.textContent = 'Building…';
+
+  const { open, wd, wdRows, gapRows, bucket, dir, isWeekday } = lastMatchContext;
+  const P = (prevRow.h + prevRow.l + prevRow.c) / 3;
+  const R1 = roundTo(2*P - prevRow.l, 1);
+  const R2 = roundTo(P + (prevRow.h - prevRow.l), 1);
+  const S1 = roundTo(2*P - prevRow.h, 1);
+  const S2 = roundTo(P - (prevRow.h - prevRow.l), 1);
+  const pivot = roundTo(P, 1);
+  const prevHigh = prevRow.h;
+  const prevLow = prevRow.l;
+
+  // --- Gather every signal the app has ---
+  const wdStats = isWeekday ? summarize(wdRows) : null;
+  const gapStats = summarize(gapRows);
+  const atr14 = computeATR(HIST, 14);
+  const streaks = computeStreaks(HIST);
+  const entryToStop = R1 - pivot;
+
+  let vixInfo = null;
+  try{
+    const res = await fetch('/api/get-vix-status');
+    const json = await res.json();
+    if(json.vixAlertEnabled && json.log && json.log.readings && json.log.readings.length){
+      const latest = json.log.readings[json.log.readings.length-1].vix;
+      const openVix = json.log.openVix;
+      vixInfo = { latest, openVix, pctChange: openVix ? ((latest-openVix)/openVix*100) : null };
+    }
+  }catch(e){ /* VIX context is optional, plan still works without it */ }
+
+  // --- Build the notes using real numbers, not invented ones ---
+  const wdNote = wdStats
+    ? `${wdStats.n} ${wd}s in sample closed above open ${wdStats.winPct.toFixed(0)}% of the time, avg move ${pct(wdStats.avgIntra,2)} (${sampleTag(wdStats.n).label}).`
+    : 'No weekday sample available for this date.';
+  const gapNote = gapStats
+    ? `${gapStats.n} historical gap-${dir} days in the ${bucket} bucket closed above open ${gapStats.winPct.toFixed(0)}% of the time, avg move ${pct(gapStats.avgIntra,2)} (${sampleTag(gapStats.n).label}).`
+    : 'No gap-bucket sample available.';
+  const streakNote = streaks.currentLen
+    ? `Currently on a ${streaks.currentLen}-day ${streaks.currentDir} streak (close vs prior close). Historical max in this sample: ${streaks.maxUp}-day up, ${streaks.maxDown}-day down — not a reason to expect reversal or continuation on its own, just where today sits in that context.`
+    : 'No current streak data.';
+  const atrNote = atr14
+    ? `ATR(14) is ${atr14.toFixed(0)} pts. Entry-to-stop distance here is ${Math.abs(entryToStop).toFixed(0)} pts (${(Math.abs(entryToStop)/atr14*100).toFixed(0)}% of ATR)${Math.abs(entryToStop) < atr14*0.3 ? " — tight relative to a typical day's range, a normal-volatility session could round-trip through entry and stop without any real directional move" : ''}.`
+    : 'ATR(14) not available yet (needs 14+ days of history).';
+  const vixNote = vixInfo
+    ? `India VIX currently ${vixInfo.latest.toFixed(2)}, ${vixInfo.pctChange>=0?'+':''}${vixInfo.pctChange.toFixed(1)}% since today's open.`
+    : 'VIX intraday tracking is off (or no reading yet) — turn it on in the India VIX panel above for live context here.';
+
+  document.getElementById('planLabel').value = `${wd} plan — ${document.getElementById('inDate').value}`;
+
+  document.getElementById('planContext').innerHTML = `
+    <div class="plan-context">
+      <div class="plan-context-title">Plan Context — every signal this plan is built from</div>
+      <div class="plan-context-row"><span>Weekday (${wd})</span><b>${wdNote}</b></div>
+      <div class="plan-context-row"><span>Gap (${dir}, ${bucket})</span><b>${gapNote}</b></div>
+      <div class="plan-context-row"><span>Streak</span><b>${streakNote}</b></div>
+      <div class="plan-context-row"><span>ATR check</span><b class="${Math.abs(entryToStop) < (atr14||0)*0.3 ? 'plan-context-flag' : ''}">${atrNote}</b></div>
+      <div class="plan-context-row"><span>VIX</span><b>${vixNote}</b></div>
+    </div>`;
+
+  document.getElementById('planLevelsWrap').innerHTML = '';
+
+  // 0: Entry — confirmed break of R1
+  addLevelRow({type:'entry', direction:'above', price:R1,
+    note:`Break + hold above R1 pivot resistance. ${wdNote} ${gapNote}`});
+  // 1: Target 1 — previous session high
+  addLevelRow({type:'target', direction:'above', price:roundTo(prevHigh,1),
+    note:`Previous session high — consider booking 25-40%.`});
+  // 2: Target 2 — R2 pivot resistance
+  addLevelRow({type:'target', direction:'above', price:R2,
+    note:`R2 pivot resistance — consider booking most of the remaining bullish position here.`});
+  // 3: Stop — loses central pivot
+  addLevelRow({type:'stop', direction:'below', price:pivot,
+    note:`Falls back below the central pivot — bullish setup invalidated, exit the bullish leg. ${atrNote}`});
+  // 4: Flip — depends on Target 2 (index 2) being hit first, mirrors "only flip after rejection"
+  addLevelRow({type:'flip', direction:'below', price:R1, _dependsOnRowIndex:2,
+    note:`Only checked after R2 is reached — rejection back below R1 after testing R2 is the bearish-flip trigger. Consider selling a call spread here. ${vixInfo ? vixNote : ''}`});
+  // 5: Bearish target — S1
+  addLevelRow({type:'target', direction:'below', price:S1, _dependsOnRowIndex:4,
+    note:`S1 pivot support — bearish-flip target, checked only after the flip level above is hit.`});
+
+  document.getElementById('planStatus').textContent =
+    `Suggested from ${wd} pivots (P ${fmt(pivot,0)} · R1 ${fmt(R1,0)} · R2 ${fmt(R2,0)} · S1 ${fmt(S1,0)} · S2 ${fmt(S2,0)}), weighted with gap/streak/ATR/VIX context above — review every level and note before saving.`;
+  document.getElementById('planStatus').style.color = 'var(--teal)';
+
+  btn.disabled = false; btn.textContent = 'Suggest a full plan';
 }
 
 init();

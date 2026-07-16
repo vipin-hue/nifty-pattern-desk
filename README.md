@@ -160,6 +160,124 @@ names (`d, wd, o, h, l, c, pc, gap, intra, rangePts, rangePct, col`) and
 swap it in — ask me to generate one from an updated CSV if you get more
 NSE data.
 
+## Trade plans and level alerts (new)
+
+Beyond the daily pattern match, the dashboard now has a **Trade Plan &
+Levels** panel: build a plan with multiple levels — Entry, Target(s),
+Stop, and a "Flip" level for switching from a one-sided position to a
+strangle/condor — each with a note describing what to actually do. A
+scheduled function (`watch-trades.js`) checks all pending levels every 30
+minutes during market hours, but **only when at least one plan has a
+pending level** — no active plan, no price fetch, no extra load on
+NSE/Yahoo.
+
+Two hard boundaries, on purpose:
+- **It watches the NIFTY 50 index level only.** There's no free live
+  options-chain feed, so it can't check option premium, delta, or real
+  P&L — only the spot price against the levels you set.
+- **It only ever alerts — it never places, modifies, or closes a real
+  order.** No broker connection exists in this build. If you wire up Kite
+  Connect later for real automation, treat that as a separate, carefully
+  guarded project — not something to bolt onto this alerting tool.
+
+Alerts show as an in-page banner + a short beep, and only reach you while
+the dashboard tab is open — there's no push-notification setup here, so a
+closed tab means you'll see the alert next time you open the page, not
+the instant it happened.
+
+One usage note: set "above" levels above the current price and "below"
+levels below it. A level already on the wrong side of the last known
+close will fire on the very next check instead of on a real future move —
+the app warns you before saving if that looks like the case, but it's
+worth setting levels deliberately either way.
+
+**"Suggest a full plan"** auto-fills Entry / Target 1 / Target 2 / Stop /
+Flip / bearish target from standard floor pivots off the previous
+session's high/low/close (same formula as classic pivot-point trading:
+P = (H+L+C)/3, R1 = 2P-L, R2 = P+(H-L), S1 = 2P-H, S2 = P-(H-L)), plus the
+real win-rate and sample size from the pattern match above baked into the
+Entry note. The Flip level and the bearish target after it are chained
+with "Depends on" so they only become checkable once the level before them
+has actually been hit — mirrors "only flip to the call side after price
+has tested resistance and rejected it," not a flat list of independent
+thresholds. Review every price and note before saving; it's a starting
+point, not a locked plan.
+
+## ATR and ADR
+
+A standalone Volatility panel near the top shows ATR(14) — Wilder's
+smoothing on True Range, which accounts for gaps (`max(H-L, |H-prevClose|,
+|L-prevClose|)`), not just a plain High-Low average — alongside ADR at 5,
+10, and 20-day lookbacks so you can see whether the recent range is
+expanding or settling relative to the longer average. ATR(14) also shows
+up as its own row inside the Expected Range & Strike Context tiers, next
+to the percentile-based ones, since it's the more standard input for
+sizing how far OTM to sell.
+
+**Range alert** (opt-in toggle, same panel): when on, the scheduled
+watcher also fetches today's running High/Low every 30 minutes — even
+with no trade plan active, which is why it's a separate toggle rather than
+always-on — and alerts you once when today's actual range crosses ADR(20),
+and once more if it crosses ATR(14). Each alert also reports how far into
+the session it happened (NSE's 9:15am-3:30pm window) — hitting the daily
+average range by 11am is a materially different situation than hitting it
+at 3:15pm, even at the same point total, so the alert says so explicitly
+rather than treating every crossing the same. This is a different kind of
+signal than the trade-level alerts: not "price hit X," but "today is
+behaving like an above-average, and possibly unusually fast, volatility
+session." Resets automatically each trading day (IST).
+
+## India VIX
+
+A separate panel shows India VIX's current level, today's open, and %
+change since open — live-ish, same NSE-then-Yahoo waterfall as everything
+else. NSE's `allIndices` response already includes VIX in the same call
+used for the NIFTY 50 price, so tracking VIX costs nothing extra when NSE
+succeeds; only the Yahoo fallback needs one additional request.
+
+An opt-in toggle alerts you once if VIX moves ±10% from today's open —
+an informal "notable move" heuristic, not a statistically derived
+threshold, and worth treating as exactly that.
+
+**What's not built:** full historical VIX pattern analysis (weekday
+stats, VIX-vs-NIFTY correlation) — that needs a year of daily VIX history
+the way `data/seed-history.json` has for NIFTY, and I don't currently have
+a way to pull that automatically. If you can download it (NSE's historical
+data section, or Yahoo Finance's `^INDIAVIX` history page has a Download
+button) and share the CSV, I can build the same weekday/gap analysis for
+VIX that already exists for NIFTY.
+
+## Refined trading suggestions
+
+"Suggest a full plan" now pulls together every signal the app tracks
+instead of pivots alone. A **Plan Context** block appears above the level
+list, showing:
+
+- **Weekday stats** — win rate, avg move, sample size for that weekday
+- **Gap-bucket stats** — same, for that day's gap size/direction
+- **Streak** — current consecutive up/down-day count (close vs prior
+  close, matching the original workbook's definition exactly) alongside
+  the historical max in each direction, for context only — not framed as
+  a reversal or continuation signal
+- **ATR check** — compares the Entry-to-Stop distance against ATR(14) and
+  flags it when the stop sits inside ~30% of a typical day's range, since
+  a normal-volatility session could round-trip through both levels
+  without any real directional move
+- **VIX** — current level and % change since today's open, when VIX
+  tracking is switched on
+
+Every number here is computed live from the same data the rest of the
+dashboard uses — nothing is invented for this summary. The level prices
+themselves are still driven by objective pivot math (not adjusted based on
+these signals); the extra context only enriches the notes and flags
+things worth a second look before you save the plan.
+
+**Two real bugs fixed while building this:** the "Suggest a full plan"
+button had never actually been wired to a click handler in the previous
+version — clicking it did nothing. Caught it while extending the function
+and fixed the listener. Also fixed a repeat of an earlier apostrophe-
+escaping typo that would have broken the whole page on load.
+
 ## Not financial advice
 
 Same as the artifact version: everything this shows is descriptive
