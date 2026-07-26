@@ -1,18 +1,19 @@
 const { schedule } = require('@netlify/functions');
 const { fetchCurrentPrice } = require('./_lib/fetchCurrentPrice');
 const { getCapturedOpen, saveCapturedOpen, todayIST } = require('./_lib/settingsStore');
+const { logFetchAttempt } = require('./_lib/fetchLog');
 
-// Runs once at 9:10am IST (3:40am UTC), Mon-Fri — right after NSE's
+// Runs once at 9:10am IST (3:40am UTC), Mon-Fri, right after NSE's
 // pre-open session (9:00-9:15am) has done most of its price discovery.
 //
 // Honest caveat, worth repeating wherever this value shows up: pre-open
 // matching can still be settling at 9:10, so this can occasionally differ
 // slightly from the official 9:15am regular-session open. It's a
-// convenience pre-fill, not a guaranteed-final print — the dashboard lets
+// convenience pre-fill, not a guaranteed-final print, the dashboard lets
 // you override it manually either way.
 //
 // Runs unconditionally (unlike watch-trades.js) since it's a single fixed
-// daily event, not a repeated condition-based check — same pattern as the
+// daily event, not a repeated condition-based check, same pattern as the
 // once-daily close capture in update-history.js.
 
 const handler = async function () {
@@ -35,9 +36,11 @@ const handler = async function () {
       capturedAt: asOf,
     });
     console.log(`capture-open: captured ${dayOpen} via ${source} at ${asOf}`);
+    await logFetchAttempt({ fn: 'capture-open', source, success: true, detail: `open ${dayOpen}` });
   } catch (err) {
-    console.error('capture-open: failed —', err.message);
-    // No fallback value written — an absent capture just means the
+    console.error('capture-open: failed:', err.message);
+    await logFetchAttempt({ fn: 'capture-open', success: false, error: err.message });
+    // No fallback value written, an absent capture just means the
     // dashboard's Open field stays blank for manual entry, same as before
     // this feature existed.
   }

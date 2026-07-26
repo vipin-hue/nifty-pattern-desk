@@ -1,26 +1,28 @@
 const { getHistoryStore } = require('./getHistoryStore');
 const { deriveFields } = require('./deriveFields');
+const { enrichSessionRecord } = require('./enrichSession');
+const { logFetchAttempt } = require('./fetchLog');
 const seed = require('../../../data/seed-history.json');
 
 // TWO-SOURCE WATERFALL, both free, neither needs an API key or signup.
 //
-// 1) NSE's own site first — nseindia.com has no *documented* public API, but
+// 1) NSE's own site first, nseindia.com has no *documented* public API, but
 //    its own webpage calls a JSON endpoint under the hood, which is what
 //    every "free NSE data" Python library (jugaad-data, nsepython, etc.)
 //    actually does too. It requires visiting the homepage first to pick up
-//    session cookies, then reusing those cookies on the data request — NSE
+//    session cookies, then reusing those cookies on the data request, NSE
 //    rejects requests without them. NSE also actively rate-limits and
 //    blocks addresses it sees as automated traffic, including cloud/
 //    datacenter IPs (which is exactly what a Netlify function runs from),
 //    so this can simply stop working some days for reasons that have
 //    nothing to do with this code.
 //
-// 2) Yahoo Finance second, as the fallback — an unofficial but widely used
+// 2) Yahoo Finance second, as the fallback, an unofficial but widely used
 //    endpoint that tends to tolerate server-to-server requests better than
 //    NSE does.
 //
 // If both fail, runAutoFetch() records the failure and leaves the day for
-// manual entry — it never fabricates or guesses a number.
+// manual entry, it never fabricates or guesses a number.
 
 const NSE_HEADERS = {
   'User-Agent':
@@ -47,7 +49,7 @@ async function fetchFromNSE() {
     typeof homeRes.headers.getSetCookie === 'function'
       ? homeRes.headers.getSetCookie()
       : [homeRes.headers.get('set-cookie')].filter(Boolean);
-  if (!cookies.length) throw new Error('NSE gave no session cookie — likely blocked this request');
+  if (!cookies.length) throw new Error('NSE gave no session cookie, likely blocked this request');
   const cookieHeader = cookies.map((c) => c.split(';')[0]).join('; ');
 
   const to = new Date();
@@ -63,7 +65,7 @@ async function fetchFromNSE() {
   const rows = json?.data?.indexCloseOnlineRecords || json?.data?.indexTimeSeries || json?.data;
   if (!Array.isArray(rows) || !rows.length) throw new Error('Unexpected response shape from NSE');
 
-  // NSE's own field names have varied across API revisions — read defensively.
+  // NSE's own field names have varied across API revisions, read defensively.
   return rows
     .map((r) => {
       const dateStr = r.EOD_TIMESTAMP || r.HistoricalDate || r.TIMESTAMP;
@@ -110,7 +112,7 @@ async function fetchLatestBars() {
       const rows = await fetchFromYahoo();
       return { rows, source: 'auto-yahoo' };
     } catch (yahooErr) {
-      throw new Error(`Both sources failed — NSE: ${nseErr.message} | Yahoo: ${yahooErr.message}`);
+      throw new Error(`Both sources failed, NSE: ${nseErr.message} | Yahoo: ${yahooErr.message}`);
     }
   }
 }
@@ -134,7 +136,7 @@ async function runAutoFetch() {
         .sort((a, b) => a.d.localeCompare(b.d));
       const prevClose = priorDates.length ? priorDates[priorDates.length - 1].c : null;
 
-      const record = deriveFields(day, prevClose, source);
+      const record = await enrichSessionRecord(deriveFields(day, prevClose, source));
       known.set(day.d, record);
       added++;
     }
@@ -151,6 +153,12 @@ async function runAutoFetch() {
       addedCount: added,
     };
     await store.setJSON('meta', meta);
+    await logFetchAttempt({
+      fn: 'runAutoFetch',
+      source,
+      success: true,
+      detail: `added ${added} day(s)`,
+    });
     return meta;
   } catch (err) {
     const meta = {
@@ -163,6 +171,12 @@ async function runAutoFetch() {
     } catch (e) {
       /* best effort */
     }
+    await logFetchAttempt({
+      fn: 'runAutoFetch',
+      source: 'both',
+      success: false,
+      error: err.message,
+    });
     throw err;
   }
 }

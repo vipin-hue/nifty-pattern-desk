@@ -43,9 +43,22 @@ async function saveCapturedOpen(rec) {
   await store.setJSON('capturedOpen', rec);
 }
 
+async function getTodaysChainSnapshot() {
+  const store = getHistoryStore();
+  const rec = await store.get('chainSnapshot', { type: 'json' });
+  if (!rec || rec.date !== todayIST()) return null; // stale from a prior day
+  return rec;
+}
+
+async function saveTodaysChainSnapshot(rec) {
+  const store = getHistoryStore();
+  await store.setJSON('chainSnapshot', rec);
+}
+
 module.exports = {
   getSettings, saveSettings,
   getVixLog, saveVixLog,
   getCapturedOpen, saveCapturedOpen,
+  getTodaysChainSnapshot, saveTodaysChainSnapshot,
   todayIST,
 };

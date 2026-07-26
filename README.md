@@ -5,7 +5,7 @@ now the data lives on the server (Netlify Blobs) instead of inside a single
 chat artifact, and a scheduled job attempts to add each new trading day
 automatically.
 
-Read this whole file before you deploy — especially **"Why an automated
+Read this whole file before you deploy, especially **"Why an automated
 free NSE feed is not something you can rely on"** below. I built this
 honestly, not optimistically: the automation is a best-effort bonus, and
 the app is designed to tell you clearly when it's failed rather than
@@ -16,9 +16,9 @@ quietly show you stale or wrong numbers.
 | Piece | Reliability |
 |---|---|
 | The 245-day seed history | Fixed, accurate as of 15-Jul-2026 |
-| Manual "Confirm Today's Close" | **Reliable** — this is the real source of truth |
-| Scheduled auto-fetch (NSE, then Yahoo Finance) | **Best-effort only** — unofficial endpoints, can break silently |
-| Freshness banner | Reliable — tells you honestly which of the above actually ran |
+| Manual "Confirm Today's Close" | **Reliable**, this is the real source of truth |
+| Scheduled auto-fetch (NSE, then Yahoo Finance) | **Best-effort only**, unofficial endpoints, can break silently |
+| Freshness banner | Reliable, tells you honestly which of the above actually ran |
 
 I'd treat this as: check the dashboard each evening, and if the auto-fetch
 didn't pick up the day (the banner will say so), spend 15 seconds typing in
@@ -27,15 +27,15 @@ automation to never break.
 
 ## Why an automated free NSE feed is not something you can rely on
 
-NSE's own website has no public, documented API for historical index data —
+NSE's own website has no public, documented API for historical index data,
 what unofficial libraries (jugaad-data, nsepython, etc.) use is the same
 JSON endpoint the website's own JavaScript calls, which requires session
 cookies from first loading the homepage and commonly blocks requests coming
 from cloud/server IPs (including Netlify's function infrastructure). It can
 work for a while and then stop without warning.
 
-This build tries that NSE endpoint first — that's the real "pull from the
-NSE website" path you asked for — and if it fails (blocked, changed shape,
+This build tries that NSE endpoint first, that's the real "pull from the
+NSE website" path you asked for, and if it fails (blocked, changed shape,
 times out) it automatically falls back to Yahoo Finance's unofficial chart
 endpoint (`query1.finance.yahoo.com`), which tends to be more tolerant of
 server-to-server requests. Yahoo is also unsupported and could change or
@@ -71,7 +71,7 @@ nifty-pattern-desk/
     └── app.js
 ```
 
-## Deploy to Netlify — step by step
+## Deploy to Netlify, step by step
 
 1. **Push this folder to GitHub.** Create a new repo, put everything in
    this folder at its root, commit, push.
@@ -90,7 +90,7 @@ nifty-pattern-desk/
 
 3. **Build settings** (Netlify should auto-detect these from `netlify.toml`,
    confirm they match):
-   - Build command: *(leave blank — nothing to build)*
+   - Build command: *(leave blank, nothing to build)*
    - Publish directory: `public`
    - Functions directory: `netlify/functions`
 
@@ -112,12 +112,12 @@ nifty-pattern-desk/
       - `BLOBS_TOKEN` = the token from step (b)
    d. Trigger a new deploy so the function picks up the new variables:
       **Deploys tab → Trigger deploy → Deploy site**.
-   e. Revisit `/api/get-history` — it should now return your 245+ rows
+   e. Revisit `/api/get-history`, it should now return your 245+ rows
       instead of an error.
 
    This code already knows to look for these two variables and use them if
    present (see `netlify/functions/_lib/getHistoryStore.js`), so you don't
-   need to change any code — just add the two variables and redeploy.
+   need to change any code, just add the two variables and redeploy.
 
 6. **Scheduled functions**: Netlify should detect the `schedule(...)` wrapper
    in `update-history.js` automatically and run it on the cron
@@ -129,19 +129,19 @@ nifty-pattern-desk/
    written.
 
 7. **Test it:**
-   - Visit `https://<your-site>.netlify.app` — you should see 245 rows and
+   - Visit `https://<your-site>.netlify.app`, you should see 245 rows and
      the dashboard.
    - Click "Run auto-fetch now" to test the Yahoo path immediately rather
      than waiting for the schedule.
    - Try "Confirm Today's Close" with a made-up value, confirm it appears
      in the History table with source `manual`, then delete it later by
      editing the same date again if needed (there's no delete button in
-     this version — re-saving the same date overwrites it).
+     this version, re-saving the same date overwrites it).
 
 ## A note on running this locally before you deploy
 
 `netlify dev` (from the Netlify CLI) is the right way to test this on your
-own machine with working Blobs and function routing — plain
+own machine with working Blobs and function routing, plain
 `node public/app.js` or opening `index.html` directly won't work since the
 frontend depends on `/api/*` routes that only exist under Netlify's
 function runtime or `netlify dev`.
@@ -157,37 +157,37 @@ netlify dev
 `data/seed-history.json` only goes back to 16-Jul-2025. If you want more
 history, the cleanest way is to build a new seed file with the same field
 names (`d, wd, o, h, l, c, pc, gap, intra, rangePts, rangePct, col`) and
-swap it in — ask me to generate one from an updated CSV if you get more
+swap it in, ask me to generate one from an updated CSV if you get more
 NSE data.
 
 ## Trade plans and level alerts (new)
 
 Beyond the daily pattern match, the dashboard now has a **Trade Plan &
-Levels** panel: build a plan with multiple levels — Entry, Target(s),
+Levels** panel: build a plan with multiple levels, Entry, Target(s),
 Stop, and a "Flip" level for switching from a one-sided position to a
-strangle/condor — each with a note describing what to actually do. A
+strangle/condor, each with a note describing what to actually do. A
 scheduled function (`watch-trades.js`) checks all pending levels every 30
 minutes during market hours, but **only when at least one plan has a
-pending level** — no active plan, no price fetch, no extra load on
+pending level**, no active plan, no price fetch, no extra load on
 NSE/Yahoo.
 
 Two hard boundaries, on purpose:
 - **It watches the NIFTY 50 index level only.** There's no free live
   options-chain feed, so it can't check option premium, delta, or real
-  P&L — only the spot price against the levels you set.
-- **It only ever alerts — it never places, modifies, or closes a real
+  P&L, only the spot price against the levels you set.
+- **It only ever alerts, it never places, modifies, or closes a real
   order.** No broker connection exists in this build. If you wire up Kite
   Connect later for real automation, treat that as a separate, carefully
-  guarded project — not something to bolt onto this alerting tool.
+  guarded project, not something to bolt onto this alerting tool.
 
 Alerts show as an in-page banner + a short beep, and only reach you while
-the dashboard tab is open — there's no push-notification setup here, so a
+the dashboard tab is open, there's no push-notification setup here, so a
 closed tab means you'll see the alert next time you open the page, not
 the instant it happened.
 
 One usage note: set "above" levels above the current price and "below"
 levels below it. A level already on the wrong side of the last known
-close will fire on the very next check instead of on a real future move —
+close will fire on the very next check instead of on a real future move,
 the app warns you before saving if that looks like the case, but it's
 worth setting levels deliberately either way.
 
@@ -198,55 +198,55 @@ P = (H+L+C)/3, R1 = 2P-L, R2 = P+(H-L), S1 = 2P-H, S2 = P-(H-L)), plus the
 real win-rate and sample size from the pattern match above baked into the
 Entry note. The Flip level and the bearish target after it are chained
 with "Depends on" so they only become checkable once the level before them
-has actually been hit — mirrors "only flip to the call side after price
+has actually been hit, mirrors "only flip to the call side after price
 has tested resistance and rejected it," not a flat list of independent
 thresholds. Review every price and note before saving; it's a starting
 point, not a locked plan.
 
 ## ATR and ADR
 
-A standalone Volatility panel near the top shows ATR(14) — Wilder's
+A standalone Volatility panel near the top shows ATR(14), Wilder's
 smoothing on True Range, which accounts for gaps (`max(H-L, |H-prevClose|,
-|L-prevClose|)`), not just a plain High-Low average — alongside ADR at 5,
+|L-prevClose|)`), not just a plain High-Low average, alongside ADR at 5,
 10, and 20-day lookbacks so you can see whether the recent range is
 expanding or settling relative to the longer average. ATR(14) also shows
 up as its own row inside the Expected Range & Strike Context tiers, next
 to the percentile-based ones, since it's the more standard input for
 sizing how far OTM to sell.
 
-## Dashboard audit — what got removed
+## Dashboard audit, what got removed
 
 A full audit checked every panel and toggle against one question: does
 this actually feed "Suggest a full plan," or is it standalone? **Range
-alert (the ADR/ATR intraday-range-crossing watcher) failed that test** —
+alert (the ADR/ATR intraday-range-crossing watcher) failed that test**,
 confirmed by grep that it was never referenced anywhere inside the
-suggestion logic — and was removed entirely: the toggle, its panel
+suggestion logic, and was removed entirely: the toggle, its panel
 section, `get-range-status.js`, the range-check logic in
 `watch-trades.js`, `marketSession.js` (only consumer was the range
 check), and the related settings/log storage. If you want it back, it's
-a straightforward re-add — the code existed and worked, it just wasn't
+a straightforward re-add, the code existed and worked, it just wasn't
 serving the "required for trade suggestion" bar this audit was checking
 against.
 
 Everything else that's collapsed into "Data & Maintenance" (Confirm
 Today's Close, the raw History table, the manual capture/fetch buttons)
-was kept — it's not part of generating a suggestion, but it *is* what
+was kept, it's not part of generating a suggestion, but it *is* what
 keeps the underlying history accurate, which every suggestion depends on.
 
 ## India VIX
 
 A separate panel shows India VIX's current level, today's open, and %
-change since open — live-ish, same NSE-then-Yahoo waterfall as everything
+change since open, live-ish, same NSE-then-Yahoo waterfall as everything
 else. NSE's `allIndices` response already includes VIX in the same call
 used for the NIFTY 50 price, so tracking VIX costs nothing extra when NSE
 succeeds; only the Yahoo fallback needs one additional request.
 
-An opt-in toggle alerts you once if VIX moves ±10% from today's open —
+An opt-in toggle alerts you once if VIX moves ±10% from today's open,
 an informal "notable move" heuristic, not a statistically derived
 threshold, and worth treating as exactly that.
 
 **What's not built:** full historical VIX pattern analysis (weekday
-stats, VIX-vs-NIFTY correlation) — that needs a year of daily VIX history
+stats, VIX-vs-NIFTY correlation), that needs a year of daily VIX history
 the way `data/seed-history.json` has for NIFTY, and I don't currently have
 a way to pull that automatically. If you can download it (NSE's historical
 data section, or Yahoo Finance's `^INDIAVIX` history page has a Download
@@ -259,37 +259,37 @@ VIX that already exists for NIFTY.
 instead of pivots alone. A **Plan Context** block appears above the level
 list, showing:
 
-- **Weekday stats** — win rate, avg move, sample size for that weekday
-- **Gap-bucket stats** — same, for that day's gap size/direction
-- **Streak** — current consecutive up/down-day count (close vs prior
+- **Weekday stats**, win rate, avg move, sample size for that weekday
+- **Gap-bucket stats**, same, for that day's gap size/direction
+- **Streak**, current consecutive up/down-day count (close vs prior
   close, matching the original workbook's definition exactly) alongside
-  the historical max in each direction, for context only — not framed as
+  the historical max in each direction, for context only, not framed as
   a reversal or continuation signal
-- **ATR check** — compares the Entry-to-Stop distance against ATR(14) and
+- **ATR check**, compares the Entry-to-Stop distance against ATR(14) and
   flags it when the stop sits inside ~30% of a typical day's range, since
   a normal-volatility session could round-trip through both levels
   without any real directional move
-- **VIX** — current level and % change since today's open, when VIX
+- **VIX**, current level and % change since today's open, when VIX
   tracking is switched on
 
 Every number here is computed live from the same data the rest of the
-dashboard uses — nothing is invented for this summary. The level prices
+dashboard uses, nothing is invented for this summary. The level prices
 themselves are still driven by objective pivot math (not adjusted based on
 these signals); the extra context only enriches the notes and flags
 things worth a second look before you save the plan.
 
 **Two real bugs fixed while building this:** the "Suggest a full plan"
 button had never actually been wired to a click handler in the previous
-version — clicking it did nothing. Caught it while extending the function
+version, clicking it did nothing. Caught it while extending the function
 and fixed the listener. Also fixed a repeat of an earlier apostrophe-
 escaping typo that would have broken the whole page on load.
 
 ## Auto-captured open
 
 A scheduled function runs once at 9:10am IST on weekdays and tries to
-capture that day's official NIFTY 50 open (NSE first, Yahoo fallback —
+capture that day's official NIFTY 50 open (NSE first, Yahoo fallback,
 same waterfall as everything else). If it succeeds, the dashboard's
-"Today's open" field pre-fills with it automatically on page load — and,
+"Today's open" field pre-fills with it automatically on page load, and,
 if this is the fill that populated the field (never overriding something
 you'd already typed), it also automatically runs the pattern match and
 builds a suggested plan, so opening the dashboard in the morning can show
@@ -298,27 +298,27 @@ you the full analysis with nothing clicked.
 **Where the automation deliberately stops:** it never clicks "Start
 tracking this plan." Filling a field, running a match, and building a
 suggestion are all read-only computation with no side effects. Actually
-starting to watch a plan is the point where alerts can start firing —
+starting to watch a plan is the point where alerts can start firing,
 that step stays a manual click on purpose.
 
 **Worth knowing:** NSE's pre-open session runs 9:00–9:15am, with price
 discovery still settling as late as ~9:12. A 9:10am snapshot can
-occasionally be a touch provisional rather than the final locked-in open —
+occasionally be a touch provisional rather than the final locked-in open,
 the status line says so explicitly every time. Treat it as a convenience
 pre-fill and a starting-point suggestion, not a guaranteed-final print or
 a validated signal; double-check against your broker before relying on
 either.
 
 If the capture fails (source blocked, market holiday, etc.), the field
-just stays blank for manual entry — same behavior as before this feature
+just stays blank for manual entry, same behavior as before this feature
 existed, nothing breaks.
 
 **To test this without waiting until 9:10am**, click **"Capture open
-now"** next to the input fields — it forces an immediate capture attempt
+now"** next to the input fields, it forces an immediate capture attempt
 and, on success, refreshes the field and re-runs the analysis exactly like
 the real 9:10am trigger would. One thing worth knowing: this overwrites
 today's stored capture, so the scheduled 9:10am job will then skip (it
-only runs if nothing's been captured yet that day) — fine for testing,
+only runs if nothing's been captured yet that day), fine for testing,
 just means today's value ends up being whatever this button grabbed
 rather than the actual 9:10am read.
 
@@ -328,46 +328,45 @@ Every weekday and gap-bucket row in the Historical Pattern Match panel
 (and the same stats when they feed into a suggested plan's notes) now
 carries an honest significance label, not just a raw win-rate percentage:
 
-- **Robust** — survives correction for testing multiple categories at once
-- **Weak** — nominally p<0.05 but doesn't survive that correction; a lean,
+- **Robust**, survives correction for testing multiple categories at once
+- **Weak**, nominally p<0.05 but doesn't survive that correction; a lean,
   not a proven edge
-- **None** — not distinguishable from the baseline rate
+- **None**, not distinguishable from the baseline rate
 
-This runs an exact binomial test client-side (implemented from scratch —
+This runs an exact binomial test client-side (implemented from scratch,
 log-gamma via Lanczos approximation, then an exact two-sided binomial
 p-value, since there's no stats library in the browser) and cross-checked
-against `scipy.stats.binomtest` on this exact dataset before shipping —
+against `scipy.stats.binomtest` on this exact dataset before shipping,
 matched to 4 decimal places. The correction accounts for how many
 categories were being compared at once (5 weekdays, 4 gap buckets), which
 matters: with the current ~1 year of data, **none of the 5 weekday effects
-survive correction** — Tuesday comes closest but still fails it. That's
+survive correction**, Tuesday comes closest but still fails it. That's
 not a bug in the display, that's the honest result of a proper audit; see
 the audit discussion in this project's chat history for the full
 methodology (power analysis, gap-fill significance, autocorrelation
 check) behind why the numbers are labeled this way.
 
-## Option chain — IV, PCR, Max Pain, OI walls
+## Option chain, IV, PCR, Max Pain, OI walls
 
 A new panel loads NSE's free option-chain data (same session pattern as
 everything else, but likely more blocking-prone given the much larger
-payload — that's why this is a manual "Load option chain" click rather
+payload, that's why this is a manual "Load option chain" click rather
 than something the scheduled watcher pulls automatically). For the
 nearest weekly expiry it computes:
 
-- **ATM IV** — average of Call+Put implied volatility at the strike
+- **ATM IV**, average of Call+Put implied volatility at the strike
   nearest to spot
-- **PCR** — total Put OI ÷ total Call OI across the expiry
-- **Max Pain** — the strike where aggregate option-writer payout is
+- **PCR**, total Put OI ÷ total Call OI across the expiry
+- **Max Pain**, the strike where aggregate option-writer payout is
   smallest (standard definition: for each candidate strike, sum call-OI ×
   max(0, strike-K) + put-OI × max(0, K-strike) over every strike K, take
   the minimum). Verified against a hand-computed synthetic example before
   shipping.
-- **Call/Put OI walls** — the strikes with the largest OI on each side
+- **Call/Put OI walls**, the strikes with the largest OI on each side
 
 **This feeds directly into "Suggest a full plan"** once loaded: the Plan
 Context block adds an Option Chain row comparing ATM IV against an
-ATR(14)-based annualized realized-vol estimate (`ATR14/spot × √252 × 100`)
-— IV running above that is the traditional condition favoring premium
+ATR(14)-based annualized realized-vol estimate (`ATR14/spot × √252 × 100`) IV running above that is the traditional condition favoring premium
 selling, though it's explicitly labeled as a single-day snapshot, not a
 backtested signal, since there's no historical IV series yet to know if
 today's spread is wide or narrow by this market's own standards. The Call
@@ -375,13 +374,165 @@ and Put OI walls are also cross-referenced against the plan's own R2/S1
 pivot targets, so you can see at a glance whether the pivot math and where
 option writers are actually positioned agree or disagree.
 
-Reload the chain before building a new plan if it's been a while — it's
+Reload the chain before building a new plan if it's been a while, it's
 a live snapshot, not something that updates itself in the background.
+
+**If you see "NSE homepage returned 403":** NSE actively blocks traffic
+it flags as automated, and this endpoint's larger payload seems to
+trigger that more readily than the smaller ones this app uses elsewhere.
+The shared NSE session helper (`_lib/nseSession.js`) now sends fuller,
+more browser-realistic headers and retries once with a short backoff,
+this also benefits the Nifty price and VIX fetches, since they share the
+same helper. That fixes transient blocks; it will not fix a hard IP-level
+block, which is the more likely cause if 403s persist across retries,
+Netlify functions run from shared cloud infrastructure, and NSE is known
+to rate-limit or block entire cloud IP ranges outright, independent of
+what the request looks like. Unlike price/VIX/daily close, this feature
+has no free fallback source, so if NSE is blocking this deployment's IP
+range specifically, checking nseindia.com directly in a browser is the
+practical fallback until that eases or a paid data source replaces it.
+
+## Phase 1: data collection reliability
+
+Built per the formal build-context spec:
+
+- **Extended session record**: every daily row now carries a data quality
+  tag (`manual_confirmed` / `fetched_auto` / `fetched_fallback` / `seed`),
+  an expiry-day flag (Nifty weekly expiry, Thursday before 1-Sep-2025,
+  Tuesday after, verified against the known regime-change date), and
+  slots for VIX, PCR, Max Pain, and OI walls.
+- **VIX/PCR/Max Pain now actually persist.** Previously VIX reset every
+  night and option chain data lived only in a browser variable that died
+  on refresh, confirmed by checking the code directly before this was
+  built. Now, when a session's close is confirmed (manual or scheduled),
+  a shared enrichment step merges in whatever same-day VIX reading and
+  option chain snapshot were captured that day. Loading the option chain
+  also now saves a same-day snapshot server-side specifically so this
+  merge has something to pull from.
+- **Fetch attempt log**: every fetch, daily close, open capture, option
+  chain load, now writes an entry (timestamp, function, source, success or
+  failure with the error) to a persistent, capped log. Previously there
+  was only ever a single overwriting "last status" record.
+- **System Health panel**, in Data & Maintenance: last close date and
+  staleness, whether VIX and the option chain have been touched today,
+  recent failure count, a gap check across the last 10 trading days (with
+  the caveat that it doesn't know the market holiday calendar, so a
+  holiday will show up as a false gap), and the last 10 fetch attempts.
+  Entirely read-only, checks existing state, never fetches anything.
+
+## Statistical correction upgrade: Benjamini-Hochberg
+
+The significance testing on every weekday and gap-bucket pattern now runs
+a proper Benjamini-Hochberg false discovery rate correction across the
+full family of patterns this tool tracks (13: 5 weekdays plus 4 gap
+buckets by 2 directions), computed together in one pass, not per-panel.
+Implemented from scratch in JavaScript (log-gamma via Lanczos
+approximation for the exact binomial test, then the BH step-up procedure)
+and verified against a textbook worked example before being trusted on
+real data. Running it against the actual dataset: with the honest
+full-family correction, none of the 13 patterns currently survive, not
+even Tuesday, which had looked like the closest thing to a real effect
+under the narrower per-panel Bonferroni check this replaced. That's the
+correct, more conservative answer given the sample size, not a bug.
+
+## Advanced statistics module (statslib.js)
+
+A new, separate, self-contained file, everything in it computes from data
+already on file, nothing new is fetched. Every function was tested against
+known worked examples or synthetic data with a known answer before being
+trusted on real data, see the build conversation for the full verification
+log (Beta distribution math checked against exact uniform-distribution
+identities, half-life estimation checked by recovering a known parameter
+from a simulated mean-reverting series, Markov chains checked against a
+deterministic synthetic sequence, and so on).
+
+- **Bayesian Beta-Binomial credible intervals**, shown alongside the
+  existing frequentist significance test on every weekday/gap-bucket row,
+  not replacing it. With a weak prior, gives a full posterior distribution
+  on the hit rate instead of a single pass/fail, handles small n more
+  gracefully.
+- **Bootstrap resampling** (2000 resamples), an assumption-free third
+  cross-check next to the Bayesian interval, agreement across frequentist,
+  Bayesian, and bootstrap is a stronger signal than any one alone.
+- **EWMA volatility**, an adaptive forward vol estimate, built instead of
+  GARCH(1,1), which needs numerical MLE optimization and generally wants
+  500+ observations to be stable, more than this project currently has.
+- **Autocorrelation function** at several lags, an objective read on
+  whether NIFTY is trending or mean-reverting right now.
+- **Half-life of range mean-reversion** (Ornstein-Uhlenbeck style), how
+  many sessions an extreme range day typically takes to normalize.
+- **Markov transition matrices**, order-1 and order-2 only. Order-3
+  deliberately not built, 245 days split across 27 three-day states
+  averages roughly 9 observations per state, worse than any weekday
+  underpowering already documented in this project, it would show
+  insufficient sample everywhere rather than say anything useful.
+- **Z-score outlier flagging** on range, sessions beyond 2.5 SD are
+  flagged, never removed, this project already checked for and rejected
+  silent survivorship filtering.
+- **Level-touch histogram** for support and resistance: a frequency count
+  of price levels actually touched, not k-means clustering, per this
+  project's own "no black-box scoring" constraint, a histogram is fully
+  auditable, a clustering algorithm is harder to explain simply.
+
+Deliberately not built this round: VIX-regime-conditioned versions of any
+of the above (needs historical VIX, which only started persisting last
+session, and needs months to accumulate), and Dow/Nasdaq/US VIX or GIFT
+Nifty pre-market context (feasibility check for a free GIFT Nifty source
+still pending, US index tickers via the same Yahoo pattern are likely
+straightforward and are next).
+
+## UI consistency audit and notifications
+
+Scoped down from a generic multi-screen SaaS redesign brief to what this
+actually is, a single-page dashboard with no navigation, no user accounts,
+no routing. Real issues found and fixed rather than a cosmetic pass:
+
+- **A genuine duplicate CSS rule** (`.journal-head` defined twice with
+  conflicting properties, the second silently overriding the first).
+  Removed the duplicate.
+- **Seven scattered inline button-size overrides** across index.html and
+  one in app.js's generated HTML, replaced with `.btn-sm` and `.btn-md`
+  modifier classes so button sizing is consistent and defined in one
+  place, not one-off per button.
+- **No spacing or type scale**, sizes had drifted into ~14 slightly
+  different values (10px, 10.5px, 11px, 11.5px...) as panels were built
+  independently over the session. Added `--sp-1` through `--sp-6` and
+  `--fs-xs` through `--fs-xl` tokens for new work to draw from.
+- **Almost no mobile breakpoints**, only one existed for the whole app,
+  and several components added since (the level-plan builder, strike
+  tiers) use fixed-pixel grid columns that would overflow on a narrow
+  screen. Added a proper `@media (max-width:640px)` block covering every
+  affected component.
+- **No explicit focus/disabled button states**, added for accessibility
+  and to make disabled actions (like "Suggest a full plan" before running
+  a match) visually obvious rather than just inert.
+
+Explicitly not built: sidebar/top navigation, breadcrumbs, multi-step
+forms, modals, export/pagination, anything about routes or permissions,
+none of that exists in this app and the original brief was written for a
+different kind of product.
+
+## Notifications
+
+Two different things, built at two different levels of effort:
+
+- **Browser notifications** (button near the top of the page): fires a
+  real OS-level popup when a trade level, VIX spike, or option chain
+  event fires, reaching you even if the tab is minimized or in the
+  background, as long as it's still open. Requires explicit permission,
+  never requested without a click. This is NOT the same as a notification
+  that works with the browser fully closed, that needs a Service Worker,
+  a push subscription, and a backend push sender, a separate, meaningfully
+  bigger project, not built here.
+- **Toast notifications**: general action feedback (plan started
+  tracking, plan closed, and so on), distinct from the trade-alert
+  banner, which is specifically for level/VIX/range hits. Auto-dismisses,
+  stacks if more than one fires close together.
 
 ## Not financial advice
 
 Same as the artifact version: everything this shows is descriptive
 historical statistics, never a prediction, and the app has no idea what
-today's news is — that's what the manual "elevated event risk" toggle in
+today's news is, that's what the manual "elevated event risk" toggle in
 the range panel is for. Confirm live prices and current headlines before
 you place anything.

@@ -20,6 +20,10 @@
     <div class="sample-badge" id="sampleBadge">Loading sample size…</div>
   </div>
 
+  <div style="text-align:right; margin:-10px 0 16px;">
+    <button class="btn secondary btn-sm" id="btnEnableNotifications">Enable browser notifications</button>
+  </div>
+
   <div class="freshness" id="freshnessBanner">Checking data freshness…</div>
 
   <!-- Everything below this point either directly feeds "Suggest a full
@@ -28,18 +32,40 @@
        suggestion) are collapsed near the bottom. -->
 
   <div class="panel" style="margin-bottom:16px;">
-    <p class="panel-title">Volatility — ATR &amp; ADR</p>
-    <p class="panel-desc">Wilder's ATR accounts for gaps (max of today's High-Low, |High-prevClose|, |Low-prevClose|), so it moves more than a plain range average on gap days — which matters here given how often NIFTY gaps. ADR is the plain average, shown at a few lookback lengths so you can see whether volatility is expanding or settling. Both feed the ATR check and streak line in every suggested plan.</p>
+    <p class="panel-title">Volatility (ATR &amp; ADR)</p>
+    <p class="panel-desc">Wilder's ATR accounts for gaps (max of today's High-Low, |High-prevClose|, |Low-prevClose|), so it moves more than a plain range average on gap days, which matters here given how often NIFTY gaps. ADR is the plain average, shown at a few lookback lengths so you can see whether volatility is expanding or settling. Both feed the ATR check and streak line in every suggested plan.</p>
     <div class="snapshot" id="volatilityWrap"></div>
   </div>
 
   <div class="panel" style="margin-bottom:16px;">
-    <p class="panel-title">India VIX — Intraday</p>
-    <p class="panel-desc">Live-ish VIX level and its % change from today's open. Turn this on to have IV-vs-VIX context appear in suggested plans below — off by default, and the plan works without it, just with one less signal.</p>
+    <p class="panel-title">Advanced Diagnostics</p>
+    <p class="panel-desc">EWMA volatility (adaptive, forward-looking, simpler and more robust at this sample size than fitting a full GARCH model), autocorrelation at a few lags (objectively trending vs mean-reverting right now), half-life of range mean-reversion, and Markov transition odds. All computed from data already on file, nothing new fetched for this panel.</p>
+    <div class="snapshot" id="diagWrap"></div>
+    <div style="margin-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div>
+        <div class="plan-context-title" style="margin-bottom:6px;">Markov: after N up/down days, P(next up)</div>
+        <table>
+          <thead><tr><th>Prior sequence</th><th>n</th><th>P(next up)</th></tr></thead>
+          <tbody id="markovBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div>
+        <div class="plan-context-title" style="margin-bottom:6px;">Level touches (High/Low, rounded to 50 pts)</div>
+        <table>
+          <thead><tr><th>Level</th><th>Touches</th></tr></thead>
+          <tbody id="levelBody"><tr class="empty-row"><td colspan="2">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <p class="panel-title">India VIX (Intraday)</p>
+    <p class="panel-desc">Live-ish VIX level and its % change from today's open. A same-day VIX move is a coincident risk gauge, not a forecast, it tends to move opposite NIFTY strongly and in real time (more strongly during stress), but it doesn't predict tomorrow's direction. Useful for sizing and risk-off decisions right now, not for timing an entry off yesterday's VIX. Turn this on to have that context appear in suggested plans below, off by default, and the plan works without it, just with one less signal.</p>
     <div class="snapshot" id="vixWrap"></div>
     <div class="event-toggle" style="margin-top:14px;">
       <input type="checkbox" id="vixAlertToggle">
-      <label for="vixAlertToggle">Track VIX and alert me if it moves ±10% from today's open — also required for VIX context to appear in suggested plans</label>
+      <label for="vixAlertToggle">Track VIX and alert me if it moves ±10% from today's open, also required for VIX context to appear in suggested plans</label>
     </div>
     <div class="hint" id="vixStatus" style="margin-top:8px;"></div>
   </div>
@@ -47,12 +73,12 @@
   <div class="panel" style="margin-bottom:16px;">
     <div class="journal-head">
       <div>
-        <p class="panel-title" style="margin:0;">Option Chain — NIFTY, Nearest Weekly Expiry</p>
-        <p class="panel-desc" style="margin:4px 0 0;">Free NSE data (same session pattern as the rest of this app, likely more blocking-prone given the larger payload — that's why this is manual, not scheduled). ATM IV, PCR, Max Pain, and OI walls, computed live. Feeds into "Suggest a full plan" below once loaded — reload before building a plan if it's been a while.</p>
+        <p class="panel-title" style="margin:0;">Option Chain (NIFTY, Nearest Weekly Expiry)</p>
+        <p class="panel-desc" style="margin:4px 0 0;">Free NSE data (same session pattern as the rest of this app, likely more blocking-prone given the larger payload, that's why this is manual, not scheduled). ATM IV, PCR, Max Pain, and OI walls, computed live. Feeds into "Suggest a full plan" below once loaded, reload before building a plan if it's been a while.</p>
       </div>
-      <button class="btn secondary" id="btnLoadChain" style="width:auto; padding:6px 12px; font-size:11px;">Load option chain</button>
+      <button class="btn secondary btn-sm" id="btnLoadChain">Load option chain</button>
     </div>
-    <div class="snapshot" id="chainWrap"><div class="tracker-empty">Not loaded yet — click "Load option chain."</div></div>
+    <div class="snapshot" id="chainWrap"><div class="tracker-empty">Not loaded yet, click "Load option chain."</div></div>
     <div class="hint" id="chainStatus" style="margin-top:8px;"></div>
   </div>
 
@@ -85,16 +111,16 @@
     <div class="journal-head">
       <div>
         <p class="panel-title" style="margin:0;">Trade Plan &amp; Levels</p>
-        <p class="panel-desc" style="margin:4px 0 0;">Click "Track" on a strike tier above for a quick two-level watch, click "Suggest a full plan" below to auto-fill Entry/Target/Stop/Flip from pivot levels and the pattern match above, or build one by hand. Checked every 30 min during market hours, only while a level here is still pending and eligible. This watches the NIFTY 50 index level only — no live option premium feed exists, so there's no P&L here, and nothing here ever places a real order.</p>
+        <p class="panel-desc" style="margin:4px 0 0;">Click "Track" on a strike tier above for a quick two-level watch, click "Suggest a full plan" below to auto-fill Entry/Target/Stop/Flip from pivot levels and the pattern match above, or build one by hand. Checked every 30 min during market hours, only while a level here is still pending and eligible. This watches the NIFTY 50 index level only, no live option premium feed exists, so there's no P&L here, and nothing here ever places a real order.</p>
       </div>
     </div>
     <div class="field" style="margin-bottom:12px;"><label>Plan label</label><input type="text" id="planLabel" placeholder="e.g. 15 Jul short put plan"></div>
     <div id="planContext"></div>
     <div id="planLevelsWrap"></div>
     <div style="display:flex; gap:10px; margin-top:10px;">
-      <button class="btn secondary" id="btnAddLevel" style="width:auto; padding:8px 14px;">+ Add level</button>
-      <button class="btn secondary" id="btnSuggestLevels" style="width:auto; padding:8px 14px;" disabled title="Run a pattern match above first">Suggest a full plan</button>
-      <button class="btn" id="btnSavePlan" style="width:auto; padding:8px 18px;">Start tracking this plan</button>
+      <button class="btn secondary btn-md" id="btnAddLevel">+ Add level</button>
+      <button class="btn secondary btn-md" id="btnSuggestLevels" disabled title="Run a pattern match above first">Suggest a full plan</button>
+      <button class="btn btn-md" id="btnSavePlan">Start tracking this plan</button>
     </div>
     <div class="hint" id="planStatus" style="margin-top:8px;"></div>
 
@@ -102,13 +128,13 @@
   </div>
 
   <details class="maintenance">
-    <summary>Data &amp; Maintenance — keeps the history accurate, not part of generating a suggestion</summary>
+    <summary>Data &amp; Maintenance, keeps the history accurate, not part of generating a suggestion</summary>
 
     <div class="panel" style="margin-top:12px;">
       <div class="journal-head">
         <div>
           <p class="panel-title" style="margin:0;">Confirm Today's Close</p>
-          <p class="panel-desc" style="margin:4px 0 0;">The reliable path — type in the actual O/H/L/C once the session's done (from your broker or NSE) and it's saved permanently. Auto-fetch is a bonus, not the source of truth.</p>
+          <p class="panel-desc" style="margin:4px 0 0;">The reliable path, type in the actual O/H/L/C once the session's done (from your broker or NSE) and it's saved permanently. Auto-fetch is a bonus, not the source of truth.</p>
         </div>
       </div>
       <div class="input-strip" style="margin-bottom:0;">
@@ -121,31 +147,50 @@
       </div>
       <div class="hint" id="logStatus" style="margin-top:8px;"></div>
       <div class="hint" style="margin-top:12px;">
-        <button class="btn secondary" id="btnCaptureOpenNow" style="width:auto; padding:6px 12px; font-size:11px;">Capture open now</button>
-        <span style="margin-left:8px;">Forces an immediate open-capture instead of waiting for the scheduled 9:10am run — mainly for testing.</span>
+        <button class="btn secondary btn-sm" id="btnCaptureOpenNow">Capture open now</button>
+        <span style="margin-left:8px;">Forces an immediate open-capture instead of waiting for the scheduled 9:10am run, mainly for testing.</span>
       </div>
     </div>
 
     <div class="panel" style="margin-top:12px;">
       <div class="journal-head">
         <p class="panel-title" style="margin:0;">History (most recent)</p>
-        <button class="btn secondary" id="btnTriggerFetch" style="width:auto;padding:6px 12px;font-size:11px;">Run auto-fetch now</button>
+        <button class="btn secondary btn-sm" id="btnTriggerFetch">Run auto-fetch now</button>
       </div>
       <table>
         <thead><tr><th>Date</th><th>Day</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Gap%</th><th>Source</th></tr></thead>
         <tbody id="historyBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
       </table>
     </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <div class="journal-head">
+        <p class="panel-title" style="margin:0;">System Health</p>
+        <button class="btn secondary btn-sm" id="btnRefreshHealth">Refresh</button>
+      </div>
+      <p class="panel-desc">Read-only, checks existing state, never fetches anything itself. Tells you whether the scheduled jobs are actually running, not just what the last one said.</p>
+      <div class="snapshot" id="healthWrap"><div class="tracker-empty">Loading…</div></div>
+      <div class="hint" id="healthMissing" style="margin-top:8px;"></div>
+      <div style="margin-top:12px;">
+        <div class="plan-context-title" style="margin-bottom:6px;">Last 10 fetch attempts</div>
+        <table>
+          <thead><tr><th>When</th><th>Function</th><th>Source</th><th>Result</th></tr></thead>
+          <tbody id="healthLogBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </details>
 
 </div>
 
 <div class="alert-banner" id="alertBanner"></div>
+<div class="toast-stack" id="toastStack"></div>
 
 <div class="disclaimer">
   Descriptive statistics on historical trading days only. <b>Not predictions, not a trading signal, not financial advice.</b> Confirm live prices and current news before placing any trade.
 </div>
 
+<script src="/statslib.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

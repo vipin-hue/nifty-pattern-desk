@@ -4,13 +4,13 @@ const { loadTrades, saveTrades } = require('./_lib/tradeStore');
 const { getSettings, getVixLog, saveVixLog } = require('./_lib/settingsStore');
 
 // Runs every 30 minutes, Mon-Fri, across NSE market hours (9:15am-3:30pm
-// IST = 3:45am-10:00am UTC — see cron at the bottom).
+// IST = 3:45am-10:00am UTC, see cron at the bottom).
 //
 // Only fetches a price if there's something that actually needs it:
 //   - a trade with an eligible pending level, OR
 //   - the VIX-alert toggle is on
 // (VIX is opt-in specifically because it means fetching even with no
-// trade plan active — today's VIX exists regardless of whether you're
+// trade plan active, today's VIX exists regardless of whether you're
 // tracking a trade, so it doesn't fit the "only fetch when a plan needs
 // it" rule the trade watcher uses).
 // Neither active = no fetch, no extra load on NSE/Yahoo.
@@ -19,17 +19,17 @@ const { getSettings, getVixLog, saveVixLog } = require('./_lib/settingsStore');
 // stop, flip to the other side, etc), optionally chained with dependsOn so
 // a later level only becomes checkable once an earlier one has actually
 // been hit. Each eligible pending level is checked independently
-// otherwise — one trade can progress through several alerts over the day
+// otherwise, one trade can progress through several alerts over the day
 // without closing itself, you close it manually once done.
 //
 // VIX WATCH: tracks India VIX readings through the day and alerts once if
-// it moves ±10% from today's open — a common informal "notable move"
+// it moves ±10% from today's open, a common informal "notable move"
 // threshold, not a statistically derived one. NSE's allIndices response
 // already includes VIX alongside NIFTY 50 in the same call, so this adds
 // no extra NSE load when NSE succeeds; only the Yahoo fallback needs a
 // second, separate call.
 //
-// Both only ever watch published index levels and alert you — this
+// Both only ever watch published index levels and alert you, this
 // never places, modifies, or closes a real order, and there's no live
 // option-premium feed, so no P&L is calculated anywhere here.
 
@@ -56,7 +56,7 @@ async function checkLevels(price, asOf) {
         lvl.hitPrice = price;
         lvl.acknowledged = false;
         changed = true;
-        console.log(`watch-trades: LEVEL HIT "${trade.label}" [${lvl.type}] ${lvl.direction} ${lvl.price} — price ${price}`);
+        console.log(`watch-trades: LEVEL HIT "${trade.label}" [${lvl.type}] ${lvl.direction} ${lvl.price}, price ${price}`);
       }
     }
   }
@@ -82,12 +82,12 @@ async function checkVix(vix, vixOpenFromSource, asOf) {
   if (!log.firedThresholds.includes('spike_up') && pctChange >= VIX_MOVE_THRESHOLD_PCT) {
     log.firedThresholds.push('spike_up');
     log.events.push({ direction: 'up', pctChange: Math.round(pctChange * 10) / 10, vix, openVix: log.openVix, at: asOf });
-    console.log(`watch-trades: VIX ALERT — up ${pctChange.toFixed(1)}% from today's open (${log.openVix} -> ${vix})`);
+    console.log(`watch-trades: VIX ALERT, up ${pctChange.toFixed(1)}% from today's open (${log.openVix} -> ${vix})`);
   }
   if (!log.firedThresholds.includes('spike_down') && pctChange <= -VIX_MOVE_THRESHOLD_PCT) {
     log.firedThresholds.push('spike_down');
     log.events.push({ direction: 'down', pctChange: Math.round(pctChange * 10) / 10, vix, openVix: log.openVix, at: asOf });
-    console.log(`watch-trades: VIX ALERT — down ${pctChange.toFixed(1)}% from today's open (${log.openVix} -> ${vix})`);
+    console.log(`watch-trades: VIX ALERT, down ${pctChange.toFixed(1)}% from today's open (${log.openVix} -> ${vix})`);
   }
 
   if (changed) await saveVixLog(log);
@@ -113,8 +113,8 @@ const handler = async function () {
     if (hasEligibleLevel) await checkLevels(price, asOf);
     if (vixAlertOn) await checkVix(vix, vixOpen, asOf);
   } catch (err) {
-    console.error('watch-trades: price fetch failed —', err.message);
-    // Deliberately not written into trade/vix records — a failed
+    console.error('watch-trades: price fetch failed:', err.message);
+    // Deliberately not written into trade/vix records, a failed
     // price check should never look like "nothing happened." The
     // freshness banner covers overall fetch health separately.
   }

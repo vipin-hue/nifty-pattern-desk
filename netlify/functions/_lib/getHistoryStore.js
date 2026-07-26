@@ -7,8 +7,8 @@ const { getStore } = require('@netlify/blobs');
 // from environment variables you set in the Netlify dashboard
 // (Project configuration → Environment variables):
 //
-//   BLOBS_SITE_ID   — Project configuration → General → Site details → Site ID
-//   BLOBS_TOKEN     — a Personal Access Token: User settings (top-right avatar)
+//   BLOBS_SITE_ID  , Project configuration → General → Site details → Site ID
+//   BLOBS_TOKEN    , a Personal Access Token: User settings (top-right avatar)
 //                     → Applications → Personal access tokens → New access token
 //
 // If those two variables aren't set, we still try the automatic method first

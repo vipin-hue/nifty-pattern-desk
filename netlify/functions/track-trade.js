@@ -2,18 +2,18 @@ const { loadTrades, saveTrades } = require('./_lib/tradeStore');
 
 // Body: { label, levels: [{ type, direction, price, note, dependsOnIndex }] }
 //
-//   type            — 'entry' | 'target' | 'stop' | 'flip' | 'note' (cosmetic only)
-//   direction       — 'above' | 'below' — which way price crosses to trigger it
-//   price           — the NIFTY 50 index level to watch
-//   note            — what to actually do when it's hit, e.g.
+//   type           , 'entry' | 'target' | 'stop' | 'flip' | 'note' (cosmetic only)
+//   direction      , 'above' | 'below', which way price crosses to trigger it
+//   price          , the NIFTY 50 index level to watch
+//   note           , what to actually do when it's hit, e.g.
 //                     "Sell 24250 CE / buy 24350 CE hedge"
-//   dependsOnIndex  — optional 0-based index into this same levels array;
+//   dependsOnIndex , optional 0-based index into this same levels array;
 //                     this level is only checked once that one has been hit
 //                     (e.g. a "flip to CE" level that depends on "Target 2"
-//                     having been reached first) — mirrors the sequencing a
+//                     having been reached first), mirrors the sequencing a
 //                     real plan needs, not just a flat list of thresholds.
 //
-// This only ever watches the index level and alerts you — it never places,
+// This only ever watches the index level and alerts you, it never places,
 // modifies, or closes a real order. No live option-premium feed exists, so
 // there's no P&L calculated here, only spot-level tracking.
 

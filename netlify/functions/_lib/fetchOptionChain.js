@@ -1,7 +1,7 @@
 const { NSE_HEADERS, nseSession } = require('./nseSession');
 
 // NSE's option-chain-indices endpoint is free and unofficial, same session
-// pattern as everything else scraped from NSE in this project — and the
+// pattern as everything else scraped from NSE in this project, and the
 // same caveats apply, likely more so: it's a much larger payload than
 // allIndices, so more likely to trip whatever automated-traffic detection
 // NSE runs. This is why it's a manual "Load option chain" action in the
@@ -24,7 +24,7 @@ async function fetchOptionChain(symbol = 'NIFTY') {
   const nearestExpiry = records.expiryDates && records.expiryDates[0];
   if (!nearestExpiry) throw new Error('No expiry dates in NSE option-chain response');
 
-  // Keep only rows for the nearest expiry — that's what "this week's plan"
+  // Keep only rows for the nearest expiry, that's what "this week's plan"
   // actually needs; further expiries would need their own summary.
   const rows = records.data.filter((r) => r.expiryDate === nearestExpiry);
 
@@ -63,7 +63,7 @@ async function fetchOptionChain(symbol = 'NIFTY') {
     else atmIV = ceIV || peIV || null;
   }
 
-  // Max Pain: the strike where option WRITERS' total payout is smallest —
+  // Max Pain: the strike where option WRITERS' total payout is smallest,
   // i.e. where the most option value would expire worthless. Standard
   // definition: for each candidate settlement strike S, sum over every
   // strike K of (call OI at K * max(0, S-K)) + (put OI at K * max(0, K-S)),

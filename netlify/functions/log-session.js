@@ -1,5 +1,6 @@
 const { getHistoryStore } = require('./_lib/getHistoryStore');
 const { deriveFields } = require('./_lib/deriveFields');
+const { enrichSessionRecord } = require('./_lib/enrichSession');
 const seed = require('../../data/seed-history.json');
 
 // This is the reliable path: you type in the day's actual O/H/L/C (from your
@@ -32,7 +33,7 @@ exports.handler = async function (event) {
       prevClose = all.length ? all[all.length - 1].c : null;
     }
 
-    const record = deriveFields({ d, o, h, l, c }, prevClose, 'manual');
+    const record = await enrichSessionRecord(deriveFields({ d, o, h, l, c }, prevClose, 'manual'));
     const filtered = existing.filter((r) => r.d !== d);
     filtered.push(record);
     filtered.sort((a, b) => a.d.localeCompare(b.d));

@@ -2,10 +2,10 @@
 // trade-watch, range-alert, and VIX-tracking features. Same honesty rules
 // as the daily fetch: try NSE first, fall back to Yahoo, never fabricate a
 // number if both fail. Yahoo's free quotes are typically 15-20 minutes
-// delayed — this is a heads-up tool, not a live tape.
+// delayed, this is a heads-up tool, not a live tape.
 //
 // NSE's allIndices endpoint returns EVERY index in one response, so NIFTY
-// 50 and India VIX come from a single HTTP call when NSE succeeds — VIX
+// 50 and India VIX come from a single HTTP call when NSE succeeds, VIX
 // tracking costs nothing extra in that case. Only the Yahoo fallback path
 // needs a second, separate call for VIX (^INDIAVIX is a different symbol
 // than ^NSEI, Yahoo doesn't bundle them).
@@ -24,7 +24,7 @@ async function fetchFromNSE() {
   const niftyRow = rows.find((r) => r.index === 'NIFTY 50');
   if (!niftyRow || niftyRow.last == null) throw new Error('NIFTY 50 not found in NSE allIndices response');
 
-  // NSE has listed VIX under slightly different names historically —
+  // NSE has listed VIX under slightly different names historically,
   // match defensively rather than assuming one exact string.
   const vixRow = rows.find((r) => /india\s*vix/i.test(r.index || ''));
 
@@ -97,7 +97,7 @@ async function fetchCurrentPrice(needVix = false) {
     try {
       return await fetchFromYahoo(needVix);
     } catch (yahooErr) {
-      throw new Error(`Both sources failed — NSE: ${nseErr.message} | Yahoo: ${yahooErr.message}`);
+      throw new Error(`Both sources failed, NSE: ${nseErr.message} | Yahoo: ${yahooErr.message}`);
     }
   }
 }

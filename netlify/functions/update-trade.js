@@ -1,9 +1,9 @@
 const { loadTrades, saveTrades } = require('./_lib/tradeStore');
 
 // Body: { id, action, levelId? }
-//   action "close"            — stop watching the whole trade
-//   action "ack-level"        — mark one hit level as seen (needs levelId)
-//   action "reopen-level"     — put a hit level back to pending (rare, for corrections)
+//   action "close"           , stop watching the whole trade
+//   action "ack-level"       , mark one hit level as seen (needs levelId)
+//   action "reopen-level"    , put a hit level back to pending (rare, for corrections)
 
 exports.handler = async function (event) {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method not allowed' };
