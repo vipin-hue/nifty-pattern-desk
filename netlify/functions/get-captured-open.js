@@ -1,18 +1,18 @@
 const { getCapturedOpen } = require('./_lib/settingsStore');
 
-exports.handler = async function () {
+// Fetch endpoint that returns today's captured open to the frontend.
+// Called by app.js loadCapturedOpen() to auto-fill the Open field.
+// Returns { captured: { date, open, source, capturedAt } } or { captured: null }
+// if no capture exists for today.
+
+const handler = async function (req, res) {
   try {
     const rec = await getCapturedOpen();
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ captured: rec }), // null if nothing captured yet today
-    };
+    res.status(200).json({ captured: rec });
   } catch (err) {
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: err.message }),
-    };
+    console.error('get-captured-open: failed:', err.message);
+    res.status(500).json({ error: err.message, captured: null });
   }
 };
+
+exports.handler = handler;
