@@ -42,6 +42,16 @@ function sampleTag(n){
   return {label:'reasonable sample', cls:''};
 }
 
+function isMarketHours(){
+  // Check if current time is within 9:15am-3:30pm IST (roughly market hours)
+  const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000); // Convert to IST
+  const hours = now.getUTCHours();
+  const minutes = now.getUTCMinutes();
+  const totalMins = hours * 60 + minutes;
+  // 9:15am IST = 3:45am UTC, 3:30pm IST = 10:00am UTC
+  return totalMins >= 3*60+45 && totalMins < 10*60;
+}
+
 // Log-gamma via Lanczos approximation, for computing exact binomial
 // probabilities without overflowing on n choose k at n up to a few
 // hundred.
@@ -351,6 +361,19 @@ function init(){
   document.getElementById('btnLoadChain').addEventListener('click', loadOptionChain);
   seedDefaultLevels();
 
+  // Set date field to today by default
+  const dateField = document.getElementById('inDate');
+  if(dateField && !dateField.value){
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    dateField.value = today.toISOString().slice(0, 10);
+  }
+  
+  // Improve open field placeholder
+  const openField = document.getElementById('inOpen');
+  if(openField){
+    openField.placeholder = 'e.g. 24090.50 (will auto-fill at 9:10am IST if on market)';
+  }
+
   loadHistory().then(()=>{
     const last = HIST[HIST.length-1];
     if(last) document.getElementById('inPrevClose').placeholder = `last on file: ${last.c} (${last.d})`;
@@ -369,6 +392,11 @@ function init(){
   // push-notification setup.
   setInterval(loadTrades, 60000);
   setInterval(loadVixStatus, 60000);
+  
+  // Auto-refresh System Health every 30s during market hours (9:15am-3:30pm IST)
+  setInterval(()=>{
+    if(isMarketHours()) loadSystemHealth();
+  }, 30000);
 }
 
 async function toggleVixAlert(){
@@ -478,11 +506,27 @@ async function loadSystemHealth(){
       return;
     }
 
+    // Fetch the captured open to show in System Health
+    let capturedOpenHtml = '<div class="snap-cell"><div class="snap-label">Last Capture</div><div class="snap-val neutral">checking...</div></div>';
+    try{
+      const capRes = await fetch('/api/get-captured-open');
+      const capJson = await capRes.json();
+      if(capJson.captured && capJson.captured.open){
+        const capTime = new Date(capJson.captured.capturedAt).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+        capturedOpenHtml = `<div class="snap-cell"><div class="snap-label">Last Capture</div><div class="snap-val up">${fmt(capJson.captured.open)} at ${capTime}</div></div>`;
+      } else {
+        capturedOpenHtml = '<div class="snap-cell"><div class="snap-label">Last Capture</div><div class="snap-val neutral">none yet today</div></div>';
+      }
+    }catch(e){
+      capturedOpenHtml = '<div class="snap-cell"><div class="snap-label">Last Capture</div><div class="snap-val neutral">N/A</div></div>';
+    }
+
     const staleClass = json.history.daysSinceLastClose != null && json.history.daysSinceLastClose > 4 ? 'down' : 'up';
     wrap.innerHTML = `
       <div class="snap-cell"><div class="snap-label">Last Close</div><div class="snap-val neutral">${json.history.lastDate || 'N/A'}</div></div>
       <div class="snap-cell"><div class="snap-label">Days Since</div><div class="snap-val ${staleClass}">${json.history.daysSinceLastClose != null ? json.history.daysSinceLastClose : 'N/A'}</div></div>
       <div class="snap-cell"><div class="snap-label">Last Source</div><div class="snap-val neutral">${json.history.lastSource || 'N/A'}</div></div>
+      ${capturedOpenHtml}
       <div class="snap-cell"><div class="snap-label">VIX Today</div><div class="snap-val ${json.vix.hasTodaysReading?'up':'neutral'}">${json.vix.hasTodaysReading ? json.vix.readingCount+' reading(s)' : 'none yet'}</div></div>
       <div class="snap-cell"><div class="snap-label">Chain Today</div><div class="snap-val ${json.optionChain.loadedToday?'up':'neutral'}">${json.optionChain.loadedToday ? 'loaded' : 'not loaded'}</div></div>
       <div class="snap-cell"><div class="snap-label">Recent Failures</div><div class="snap-val ${json.recentFailureCount>0?'down':'up'}">${json.recentFailureCount} of last 30</div></div>`;
@@ -545,10 +589,12 @@ async function captureOpenNow(){
       // an explicit request to refresh, so it should always take effect.
       document.getElementById('inOpen').value = '';
       await loadCapturedOpen();
+      showToast('Capture successful', 'Open captured, will auto-fill above.', 'success');
     }
   }catch(err){
     statusEl.textContent = `Manual capture request failed: ${err.message}`;
     statusEl.style.color = 'var(--red)';
+    showToast('Capture failed', err.message, 'error');
   }
   btn.disabled = false; btn.textContent = 'Capture open now';
 }
@@ -583,6 +629,7 @@ async function loadCapturedOpen(){
         /<span style="color:var\(--teal\);">.*?<\/span>/,
         `<span style="color:var(--green);">Pattern match and suggested plan ready below, review before tracking anything.</span>`
       );
+      showToast('Analysis complete', 'Pattern match ran automatically, suggested plan ready below.', 'success');
     }
   }catch(err){
     statusEl.textContent = `Could not check for an auto-captured open: ${err.message}`;
@@ -1228,7 +1275,7 @@ async function suggestLevels(){
     chainNote = parts.join(' ');
   }
 
-  document.getElementById('planLabel').value = `${wd} plan, ${document.getElementById('inDate').value}`;
+  document.getElementById('planLabel').value = `${wd} plan, gap-${dir} ${bucket}, ${document.getElementById('inDate').value}`;
 
   document.getElementById('planContext').innerHTML = `
     <div class="plan-context">
