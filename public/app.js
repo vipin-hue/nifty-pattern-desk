@@ -577,7 +577,7 @@ async function loadTopMovers(){
   if(!wrap) return; // Panel doesn't exist in HTML yet
   
   try{
-    const res = await fetch('/api/get-top-movers');
+    const res = await fetch('/api/get-top-movers-api');
     
     // Check if response is ok before trying to parse JSON
     if(!res.ok){
