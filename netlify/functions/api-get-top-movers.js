@@ -19,17 +19,23 @@ function getHistoryStore() {
 const handler = async function (req, res) {
   try {
     const store = getHistoryStore();
-    const data = await store.get('topMovers', { type: 'json' });
+    let data = null;
+    try {
+      data = await store.get('topMovers', { type: 'json' });
+    } catch (e) {
+      // Blobs might not have the key yet, return empty gracefully
+      console.log('topMovers not in Blobs yet');
+    }
     
     if (!data) {
-      res.status(200).json({ gainers: [], losers: [], fetchedAt: null, message: 'No movers data yet' });
+      res.status(200).json({ gainers: [], losers: [], fetchedAt: null, message: 'No movers data yet, check back after market opens' });
       return;
     }
 
     res.status(200).json(data);
   } catch (err) {
     console.error('api/get-top-movers: failed', err.message);
-    res.status(500).json({ error: err.message, gainers: [], losers: [] });
+    res.status(200).json({ error: err.message, gainers: [], losers: [] });
   }
 };
 
