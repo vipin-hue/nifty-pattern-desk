@@ -60,11 +60,19 @@ async function getTopMovers() {
 }
 
 async function saveTopMovers(data) {
-  const siteID = process.env.BLOBS_SITE_ID;
-  const token = process.env.BLOBS_TOKEN;
-  if (siteID && token) {
-    const store = getStore({ name: 'nifty-history', siteID, token });
+  try {
+    const siteID = process.env.BLOBS_SITE_ID;
+    const token = process.env.BLOBS_TOKEN;
+    if (!siteID || !token) {
+      console.log('Blobs credentials not set, skipping save');
+      return;
+    }
+    const { getStore: netlifyGetStore } = require('@netlify/blobs');
+    const store = netlifyGetStore({ name: 'nifty-history', siteID, token });
     await store.setJSON('topMovers', data);
+    console.log('Saved topMovers to Blobs');
+  } catch (err) {
+    console.error('Error saving topMovers:', err.message);
   }
 }
 
