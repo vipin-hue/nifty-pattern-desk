@@ -361,6 +361,18 @@ function init(){
   document.getElementById('btnLoadChain').addEventListener('click', loadOptionChain);
   seedDefaultLevels();
 
+  // Inject Market Movers panel before the pattern match section
+  const inputStrip = document.querySelector('.input-strip');
+  if(inputStrip && !document.getElementById('topMoversWrap')){
+    const panelHTML = `
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-title">Market Movers (Top 10)</div>
+        <div class="panel-desc">Top 10 gainers and losers from NIFTY 50, updated every 30 mins during market hours. Stocks moving 5% or more will trigger a notification.</div>
+        <div id="topMoversWrap" class="tracker-empty">Loading market movers...</div>
+      </div>`;
+    inputStrip.insertAdjacentHTML('afterend', panelHTML);
+  }
+
   // Set date field to today by default
   const dateField = document.getElementById('inDate');
   if(dateField && !dateField.value){
