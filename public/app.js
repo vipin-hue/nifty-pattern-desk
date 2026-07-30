@@ -578,7 +578,29 @@ async function loadTopMovers(){
   
   try{
     const res = await fetch('/api/get-top-movers');
-    const json = await res.json();
+    
+    // Check if response is ok before trying to parse JSON
+    if(!res.ok){
+      wrap.innerHTML = `<div class="tracker-empty">Market movers API error (${res.status}), try again later.</div>`;
+      return;
+    }
+
+    // Get response text first to debug
+    const text = await res.text();
+    if(!text || text.length === 0){
+      wrap.innerHTML = `<div class="tracker-empty">Market movers not available yet, check back during market hours.</div>`;
+      return;
+    }
+
+    // Try to parse JSON
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('Failed to parse movers JSON:', text);
+      wrap.innerHTML = `<div class="tracker-empty">Market movers data error, please refresh.</div>`;
+      return;
+    }
     
     if(!json.gainers || !json.losers || (json.gainers.length === 0 && json.losers.length === 0)){
       wrap.innerHTML = `<div class="tracker-empty">Market movers not available yet, check back during market hours.</div>`;
