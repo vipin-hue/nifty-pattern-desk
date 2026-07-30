@@ -228,3 +228,17 @@
 @media (max-width:640px){
   .toast-stack{left:12px;right:12px;bottom:80px;max-width:none;}
 }
+
+/* --- Market movers panel --- */
+.movers-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;}
+@media (max-width:640px){.movers-grid{grid-template-columns:1fr;}}
+.movers-section{border:1px solid var(--line-soft);border-radius:8px;padding:12px;background:var(--panel-2);}
+.movers-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;}
+.movers-list{display:flex;flex-direction:column;gap:6px;}
+.mover-item{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:12px;padding:6px 8px;border-radius:4px;background:var(--ink);}
+.mover-item.up{color:var(--green);}
+.mover-item.down{color:var(--red);}
+.mover-item.extreme{background:var(--amber-dim);color:var(--amber);font-weight:600;}
+.mover-name{flex:1;}
+.mover-pct{text-align:right;font-weight:600;}
+.movers-footer{font-family:var(--mono);font-size:10px;color:var(--text-faint);text-align:right;margin-top:8px;}

@@ -397,6 +397,12 @@ function init(){
   setInterval(()=>{
     if(isMarketHours()) loadSystemHealth();
   }, 30000);
+  
+  // Load and auto-refresh top movers every 30s during market hours
+  loadTopMovers();
+  setInterval(()=>{
+    if(isMarketHours()) loadTopMovers();
+  }, 30000);
 }
 
 async function toggleVixAlert(){
@@ -550,6 +556,70 @@ async function loadSystemHealth(){
     }
   }catch(err){
     wrap.innerHTML = `<div class="tracker-empty">Health check request failed: ${err.message}</div>`;
+  }
+}
+
+
+async function loadTopMovers(){
+  const wrap = document.getElementById('topMoversWrap');
+  if(!wrap) return; // Panel doesn't exist in HTML yet
+  
+  try{
+    const res = await fetch('/api/get-top-movers');
+    const json = await res.json();
+    
+    if(!json.gainers || !json.losers || (json.gainers.length === 0 && json.losers.length === 0)){
+      wrap.innerHTML = `<div class="tracker-empty">Market movers not available yet, check back during market hours.</div>`;
+      return;
+    }
+
+    // Build gainers section
+    const gainersHtml = json.gainers.map(m => {
+      const name = m.ticker.replace('.NS', '');
+      const pctDisplay = pct(m.pctChange, 2);
+      // Check if move is >= 5% to show in highlight color
+      const isExtreme = Math.abs(m.pctChange) >= 5;
+      return `<div class="mover-item ${isExtreme ? 'extreme' : 'up'}">
+        <span class="mover-name">${name}</span>
+        <span class="mover-pct">${pctDisplay}</span>
+      </div>`;
+    }).join('');
+
+    // Build losers section
+    const losersHtml = json.losers.map(m => {
+      const name = m.ticker.replace('.NS', '');
+      const pctDisplay = pct(m.pctChange, 2);
+      const isExtreme = Math.abs(m.pctChange) >= 5;
+      return `<div class="mover-item ${isExtreme ? 'extreme' : 'down'}">
+        <span class="mover-name">${name}</span>
+        <span class="mover-pct">${pctDisplay}</span>
+      </div>`;
+    }).join('');
+
+    const fetchTime = json.fetchedAt ? new Date(json.fetchedAt).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'}) : 'N/A';
+    
+    wrap.innerHTML = `
+      <div class="movers-grid">
+        <div class="movers-section">
+          <div class="movers-title">Top 10 Gainers</div>
+          <div class="movers-list">${gainersHtml}</div>
+        </div>
+        <div class="movers-section">
+          <div class="movers-title">Top 10 Losers</div>
+          <div class="movers-list">${losersHtml}</div>
+        </div>
+      </div>
+      <div class="movers-footer">Updated at ${fetchTime}</div>`;
+
+    // Check for extreme moves (>= 5%) and show toast notification
+    const extremeMoves = [...json.gainers, ...json.losers].filter(m => Math.abs(m.pctChange) >= 5);
+    if(extremeMoves.length > 0){
+      const movedStocks = extremeMoves.map(m => `${m.ticker.replace('.NS', '')} ${pct(m.pctChange, 1)}`).join(', ');
+      showToast('Extreme moves detected', `${movedStocks}`, 'warning');
+    }
+
+  }catch(err){
+    wrap.innerHTML = `<div class="tracker-empty">Could not load market movers: ${err.message}</div>`;
   }
 }
 
